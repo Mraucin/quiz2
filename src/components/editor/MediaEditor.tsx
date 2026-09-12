@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Badge, Input, Label, Select } from '@/components/ui/primitives'
 import { fileToDataUrl, formatBytes } from '@/lib/storage'
 import type { Media, MediaKind } from '@/lib/types'
+import { approxDataUrlBytes, MAX_PLAYER_MEDIA_BYTES } from '@/lib/utils'
 
 const kindIcon = { image: Image, audio: Music, video: Video } as const
 const accept: Record<MediaKind, string> = {
@@ -91,10 +92,15 @@ export function MediaEditor({
           <Icon className="size-4 text-gold" />
           <span className="truncate">
             {value.src.startsWith('data:')
-              ? `plik w przeglądarce (${formatBytes(value.src.length * 0.75)})`
+              ? `plik w przeglądarce (${formatBytes(approxDataUrlBytes(value.src))})`
               : value.src}
           </span>
-          {value.src.startsWith('data:') ? <Badge>tylko ekran hosta</Badge> : <Badge tone="mint">także telefony</Badge>}
+          {!value.src.startsWith('data:') ||
+          approxDataUrlBytes(value.src) <= MAX_PLAYER_MEDIA_BYTES ? (
+            <Badge tone="mint">także telefony</Badge>
+          ) : (
+            <Badge>tylko ekran hosta — plik &gt; {formatBytes(MAX_PLAYER_MEDIA_BYTES)}</Badge>
+          )}
         </div>
       ) : null}
     </div>

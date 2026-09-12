@@ -11,7 +11,7 @@ import type {
   PublicMedia,
   Question,
 } from './types'
-import { randomId } from './utils'
+import { approxDataUrlBytes, MAX_PLAYER_MEDIA_BYTES, randomId } from './utils'
 
 export const VOWELS = 'AĄEĘIOÓUY'
 
@@ -36,11 +36,16 @@ export function cellValue(pack: Pack, category: Pick<Category, 'multiplier' | 'f
   return base * category.multiplier
 }
 
-/** Media is only forwarded to phones when it is a plain URL — uploads stay on the host screen. */
+/**
+ * Remote (http/https) media always goes to phones. Local uploads (`data:` URLs) go too, as
+ * long as they're under `MAX_PLAYER_MEDIA_BYTES` — bigger ones stay host-screen-only so they
+ * don't get re-sent in full on every game-state broadcast to every connected phone.
+ */
 function toPublicMedia(media?: Media): PublicMedia | undefined {
   if (!media) return undefined
   const isRemote = /^https?:\/\//i.test(media.src)
-  return { kind: media.kind, label: media.label, src: isRemote ? media.src : undefined }
+  const fitsForPlayers = isRemote || approxDataUrlBytes(media.src) <= MAX_PLAYER_MEDIA_BYTES
+  return { kind: media.kind, label: media.label, src: fitsForPlayers ? media.src : undefined }
 }
 
 export function buildBoard(pack: Pack): BoardCategory[] {

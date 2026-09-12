@@ -108,8 +108,11 @@ ze zwycięzcą.
 - Pakiet zapisuje się automatycznie w przeglądarce (IndexedDB) i można go
   eksportować/importować jako JSON.
 
-Materiały z linków `https://…` widzą też gracze na telefonach. Pliki wgrane z dysku
-trafiają tylko na ekran prowadzącego (nie zapychają połączenia peer-to-peer).
+Materiały z linków `https://…` widzą też gracze na telefonach. Pliki wgrane z dysku trafiają
+do graczy tak samo, dopóki mieszczą się w 4 MB — edytor pokazuje przy każdym pliku, czy
+pójdzie „także na telefony", czy zostanie tylko na ekranie hosta. Większe pliki celowo nie są
+wysyłane graczom, bo byłyby wysyłane w całości przy każdej synchronizacji stanu gry (każde
+zgłoszenie, każda zmiana punktów w trakcie pytania) i zapychałyby połączenie peer-to-peer.
 
 ## Połączenia i sieć
 

@@ -25,3 +25,16 @@ export function roomCode() {
   }
   return out
 }
+
+/**
+ * Local uploads (`data:` URLs) at or under this size are forwarded to players' phones over
+ * the peer-to-peer connection, same as the host screen. Bigger ones stay host-only — they'd
+ * get re-sent in full on every game-state broadcast (every buzz, every score change while the
+ * question is open), which would bog down the connection to every phone.
+ */
+export const MAX_PLAYER_MEDIA_BYTES = 4 * 1024 * 1024
+
+/** Rough decoded size of a `data:` URL — good enough for a UI hint or a forwarding cutoff. */
+export function approxDataUrlBytes(src: string) {
+  return src.length * 0.75
+}
