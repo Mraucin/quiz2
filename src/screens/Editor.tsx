@@ -472,8 +472,20 @@ function EditorScreenContent({
                     rows={8}
                     value={question.items.join('\n')}
                     onChange={(event) =>
+                      // Keep every line exactly as typed (no trim/filter) while editing —
+                      // otherwise a just-pressed Enter creates a blank line that this same
+                      // handler immediately strips out again, so the cursor never seems to move
+                      // to a new line. Blank/whitespace-only lines get cleaned up on blur instead.
                       patchQuestion({
-                        items: event.target.value.split('\n').map((line) => line.trim()).filter(Boolean),
+                        items: event.target.value.split('\n'),
+                      } as Partial<Question>)
+                    }
+                    onBlur={(event) =>
+                      patchQuestion({
+                        items: event.target.value
+                          .split('\n')
+                          .map((line) => line.trim())
+                          .filter(Boolean),
                       } as Partial<Question>)
                     }
                   />
