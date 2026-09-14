@@ -12,12 +12,12 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react'
-import { AdminPanel } from '@/components/game/AdminPanel'
+import { AdminPanel, EstimationControls } from '@/components/game/AdminPanel'
 import { BoardGrid } from '@/components/game/BoardGrid'
 import { FinalControls, FinalStageView } from '@/components/game/FinalStage'
 import { JoinPanel } from '@/components/game/JoinPanel'
 import { PlayerStrip } from '@/components/game/PlayerStrip'
-import { QuestionStage } from '@/components/game/QuestionStage'
+import { EstimationStage, QuestionStage } from '@/components/game/QuestionStage'
 import { Results } from '@/components/game/Results'
 import { HostGate } from '@/components/HostGate'
 import { Button } from '@/components/ui/button'
@@ -43,6 +43,7 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
   const { code, state, dispatch, dispatchAs, peerStatus, peerDetail, joinUrl } = useHostGame(pack)
   const [newPlayer, setNewPlayer] = useState('')
   const [presentation, setPresentation] = useState(false)
+  const [pendingPick, setPendingPick] = useState<{ categoryId: string; questionId: string } | null>(null)
 
   const activeCategoryId = state?.active?.categoryId
   const activeQuestionId = state?.active?.questionId
@@ -198,6 +199,7 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
 
   const sidebar = (
     <aside className="flex w-full flex-col gap-3 lg:w-[22rem]">
+      {state.phase === 'estimation' ? <EstimationControls state={state} dispatch={dispatch} /> : null}
       {state.phase === 'question' ? (
         <AdminPanel
           state={state}
@@ -237,6 +239,10 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
         <div className="mt-2 flex flex-col gap-2">
           {state.players.map((player) => (
             <div key={player.id} className="flex items-center gap-2 text-sm">
+              <span
+                className={cn('size-2 rounded-full', player.connected ? 'bg-mint' : 'bg-coral')}
+                title={player.connected ? 'Połączony' : 'Rozłączony'}
+              />
               <span>{player.avatar}</span>
               <span className="flex-1 truncate">{player.name}</span>
               <span className={cn('text-display w-16 text-right', player.score < 0 && 'text-coral')}>
@@ -256,8 +262,30 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
               >
                 +100
               </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                title="Wyrzuć gracza z gry"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Wyrzucić ${player.name} z gry? Traci swoje miejsce, punkty zostają w historii przebiegu.`,
+                    )
+                  ) {
+                    dispatch({ type: 'removePlayer', playerId: player.id })
+                  }
+                }}
+              >
+                <Trash2 className="size-4 text-coral" />
+              </Button>
             </div>
           ))}
+          {state.players.some((p) => !p.connected) ? (
+            <p className="text-xs text-white/45">
+              Czerwona kropka = gracz rozłączony (nie musi wypaść z gry — po ponownym wejściu na
+              link wraca na swoje miejsce, z tymi samymi punktami). Kosz usuwa go z gry na stałe.
+            </p>
+          ) : null}
         </div>
       </Panel>
 
@@ -319,6 +347,7 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
           state.phase === 'board'
             ? state.currentPlayerId
             : (state.active?.lockedPlayerId ??
+              state.active?.assignment?.assignedPlayerId ??
               state.active?.wheel?.turnPlayerId ??
               state.active?.list?.turnPlayerId ??
               state.active?.auction?.leaderId ??
@@ -333,6 +362,7 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
       <div className={cn('flex flex-col gap-4', !presentation && 'lg:flex-row')}>
         <main className="min-w-0 flex-1">
           <Panel className="min-h-[60vh] p-5">
+            {state.phase === 'estimation' ? <EstimationStage state={state} /> : null}
             {state.phase === 'board' ? (
               <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between gap-3">
@@ -355,12 +385,48 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
                     </Button>
                   </div>
                 ) : null}
-                <BoardGrid
-                  state={state}
-                  onPick={(categoryId, cell) =>
-                    dispatch({ type: 'openQuestion', categoryId, questionId: cell.questionId })
-                  }
-                />
+                {pendingPick ? (
+                  <div className="animate-pop rounded-card border border-gold/60 bg-gold/10 p-4">
+                    <PanelTitle>Kogo wyznacza {currentPlayer?.name ?? 'prowadzący'}?</PanelTitle>
+                    <p className="mt-1 mb-2 text-sm text-white/60">
+                      {currentPlayer?.name ?? 'Prowadzący'} wybrał kategorię — niech powie, kto ma
+                      odpowiadać (może wskazać siebie albo kogoś innego).
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {state.players.map((player) => (
+                        <Button
+                          key={player.id}
+                          variant={player.id === state.currentPlayerId ? 'primary' : 'secondary'}
+                          onClick={() => {
+                            dispatch({
+                              type: 'openQuestion',
+                              categoryId: pendingPick.categoryId,
+                              questionId: pendingPick.questionId,
+                              assignedPlayerId: player.id,
+                            })
+                            setPendingPick(null)
+                          }}
+                        >
+                          {player.avatar} {player.name}
+                        </Button>
+                      ))}
+                      <Button variant="ghost" onClick={() => setPendingPick(null)}>
+                        Anuluj
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <BoardGrid
+                    state={state}
+                    onPick={(categoryId, cell) => {
+                      if (cell.kind === 'standard') {
+                        setPendingPick({ categoryId, questionId: cell.questionId })
+                      } else {
+                        dispatch({ type: 'openQuestion', categoryId, questionId: cell.questionId })
+                      }
+                    }}
+                  />
+                )}
               </div>
             ) : null}
             {state.phase === 'question' ? (

@@ -1,4 +1,4 @@
-import { Check, Eye, Gavel, Hand, Heart, Pause, Play, RotateCcw, SkipForward, X } from 'lucide-react'
+import { Check, Eye, Gavel, Heart, Pause, Play, RotateCcw, SkipForward, X } from 'lucide-react'
 import { secondsLeft, useTicker } from '@/hooks/useTicker'
 import { isVowel, playerById, VOWELS } from '@/lib/engine'
 import type { AdminAction, GameState, PlayerAction, Question } from '@/lib/types'
@@ -7,6 +7,69 @@ import { Button } from '@/components/ui/button'
 import { Badge, Panel, PanelTitle } from '@/components/ui/primitives'
 
 const ALPHABET = 'AĄBCĆDEĘFGHIJKLŁMNŃOÓPRSŚTUWYZŹŻ'.split('')
+
+/** Sidebar controls for the estimation round(s) that open the game — see `EstimationRuntime`. */
+export function EstimationControls({
+  state,
+  dispatch,
+}: {
+  state: GameState
+  dispatch: (action: AdminAction) => void
+}) {
+  const est = state.estimation
+  if (!est) return null
+  const submittedCount = est.eligiblePlayerIds.filter((id) => est.guesses[id] !== undefined).length
+  const tie = (est.winnerIds?.length ?? 0) > 1
+
+  return (
+    <Panel>
+      <PanelTitle>Runda oszacowania</PanelTitle>
+      <p className="mt-1 mb-2 text-sm text-white/60">
+        Odpowiedziało {submittedCount}/{est.eligiblePlayerIds.length} graczy.
+      </p>
+      {!est.revealed ? (
+        <Button variant="primary" onClick={() => dispatch({ type: 'estimateReveal' })}>
+          <Eye className="size-4" /> Odkryj odpowiedzi
+        </Button>
+      ) : (
+        <>
+          <div className="mt-2 flex flex-col gap-1 text-sm">
+            {[...est.eligiblePlayerIds]
+              .sort((a, b) => {
+                const target = est.correctAnswer ?? 0
+                const ga = est.guesses[a]
+                const gb = est.guesses[b]
+                const da = ga === undefined ? Infinity : Math.abs(ga - target)
+                const db = gb === undefined ? Infinity : Math.abs(gb - target)
+                return da - db
+              })
+              .map((playerId) => {
+                const player = playerById(state, playerId)
+                const guess = est.guesses[playerId]
+                const isWinner = est.winnerIds?.includes(playerId)
+                return (
+                  <div
+                    key={playerId}
+                    className={cn(
+                      'flex items-center gap-2 rounded-lg border px-2 py-1',
+                      isWinner ? 'border-gold/70 bg-gold/10' : 'border-stage-600',
+                    )}
+                  >
+                    <span>{player?.avatar}</span>
+                    <span className="flex-1 truncate">{player?.name}</span>
+                    <span className="text-display">{guess ?? '—'}</span>
+                  </div>
+                )
+              })}
+          </div>
+          <Button className="mt-3" variant="primary" onClick={() => dispatch({ type: 'estimateAdvance' })}>
+            {tie ? 'Remis — dogrywka' : 'Dalej — plansza'}
+          </Button>
+        </>
+      )}
+    </Panel>
+  )
+}
 
 export interface AdminPanelProps {
   state: GameState
@@ -80,88 +143,99 @@ export function AdminPanel({ state, question, dispatch, dispatchAs }: AdminPanel
   )
 }
 
-function JudgeRow({
-  state,
-  dispatch,
-  dispatchAs,
-  showBuzz,
-}: Omit<AdminPanelProps, 'question'> & { showBuzz?: boolean }) {
-  const active = state.active
-  return (
-    <div className="flex flex-col gap-2">
-      {state.players.map((player) => {
-        const isLocked = active?.lockedPlayerId === player.id
-        const wasWrong = active?.wrongPlayers.includes(player.id)
-        return (
-          <div
-            key={player.id}
-            className={cn(
-              'flex items-center gap-2 rounded-xl border px-2 py-1.5',
-              isLocked ? 'border-gold/70 bg-gold/10' : 'border-stage-600',
-              wasWrong && 'opacity-55',
-            )}
-          >
-            <span>{player.avatar}</span>
-            <span className="flex-1 truncate text-sm">{player.name}</span>
-            {showBuzz && player.local ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                title="Zgłoś tego gracza (hot-seat)"
-                onClick={() => dispatchAs(player.id, { type: 'buzz' })}
-              >
-                <Hand className="size-4" />
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="success"
-              onClick={() => dispatch({ type: 'judge', playerId: player.id, correct: true })}
-            >
-              <Check className="size-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={() => dispatch({ type: 'judge', playerId: player.id, correct: false })}
-            >
-              <X className="size-4" />
-            </Button>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 function StandardControls({ state, dispatch, dispatchAs }: Omit<AdminPanelProps, 'question'>) {
   const active = state.active
-  if (!active) return null
+  const assignment = active?.assignment
+  useTicker(Boolean(assignment?.timerEndsAt))
+  if (!active || !assignment) return null
+  const assignee = playerById(state, assignment.assignedPlayerId)
+  const designator = playerById(state, assignment.designatorId)
+  const holder = playerById(state, active.lockedPlayerId)
+  const remaining = secondsLeft(assignment.timerEndsAt)
+  const canTakeover = Boolean(active.choices && active.choices.length > 2)
+
+  if (active.stage === 'reading') {
+    return (
+      <Panel>
+        <PanelTitle>Czytanie pytania</PanelTitle>
+        <p className="mt-1 mb-2 text-sm text-white/60">
+          Wyznaczył: {designator?.avatar} {designator?.name} → odpowiada {assignee?.avatar}{' '}
+          {assignee?.name}. Przeczytaj pytanie tylko jemu, a potem zacznij timer.
+        </p>
+        <Button variant="primary" onClick={() => dispatch({ type: 'startAnswerTimer' })}>
+          <Play className="size-4" /> Zacznij timer ({assignment.timerSeconds}s)
+        </Button>
+      </Panel>
+    )
+  }
+
   return (
     <>
       <Panel>
-        <PanelTitle>Zgłoszenia</PanelTitle>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button
-            variant={active.buzzersOpen ? 'danger' : 'primary'}
-            onClick={() => dispatch({ type: 'setBuzzers', open: !active.buzzersOpen })}
-          >
-            <Hand className="size-4" />
-            {active.buzzersOpen ? 'Zamknij zgłoszenia' : 'Otwórz zgłoszenia'}
-          </Button>
-          {active.lockedPlayerId ? (
-            <Button variant="outline" onClick={() => dispatch({ type: 'lockPlayer', playerId: null })}>
-              Odblokuj przycisk
-            </Button>
-          ) : null}
+        <PanelTitle>Oceń odpowiedź</PanelTitle>
+        <div className="mt-1 mb-2 flex flex-wrap items-center gap-2 text-sm text-white/60">
+          <span>
+            Odpowiada: {holder?.avatar} {holder?.name}
+          </span>
+          {remaining !== null ? <Badge tone={remaining <= 5 ? 'coral' : 'gold'}>{remaining}s</Badge> : null}
         </div>
+        <p className="mt-1 mb-2 text-xs text-white/45">Błąd = −{formatPoints(active.value)}.</p>
+        {holder ? (
+          <div className="flex gap-2">
+            <Button
+              variant="success"
+              onClick={() => dispatch({ type: 'judge', playerId: holder.id, correct: true })}
+            >
+              <Check className="size-4" /> Poprawnie
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => dispatch({ type: 'judge', playerId: holder.id, correct: false })}
+            >
+              <X className="size-4" /> Błędnie / czas minął
+            </Button>
+          </div>
+        ) : null}
       </Panel>
       <Panel>
-        <PanelTitle>Oceń odpowiedź</PanelTitle>
-        <p className="mt-1 mb-2 text-xs text-white/45">
-          Błąd = −{formatPoints(active.value)}.
-        </p>
-        <JudgeRow state={state} dispatch={dispatch} dispatchAs={dispatchAs} showBuzz />
+        <PanelTitle>
+          Przejęcia {canTakeover ? `(${state.takeoversUsed}/4 na grę)` : '(niedostępne — max 2 odpowiedzi)'}
+        </PanelTitle>
+        {assignment.takeoverQueue.length > 0 ? (
+          <div className="mt-2 flex flex-col gap-1 text-sm">
+            {assignment.takeoverQueue.map((pid, index) => {
+              const p = playerById(state, pid)
+              return (
+                <div key={pid} className="flex items-center gap-2">
+                  <span className="text-xs text-white/40">{index + 1}.</span>
+                  <span>{p?.avatar}</span>
+                  <span className="flex-1 truncate">{p?.name}</span>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="mt-1 text-sm text-white/45">Nikt jeszcze nie zgłosił przejęcia.</p>
+        )}
+        {canTakeover ? (
+          <div className="mt-3 flex flex-wrap gap-1">
+            {state.players
+              .filter((p) => p.local)
+              .filter((p) => p.id !== active.lockedPlayerId)
+              .filter((p) => !assignment.attempted.includes(p.id))
+              .filter((p) => !assignment.takeoverQueue.includes(p.id))
+              .map((p) => (
+                <Button
+                  key={p.id}
+                  size="sm"
+                  variant="outline"
+                  onClick={() => dispatchAs(p.id, { type: 'requestTakeover' })}
+                >
+                  {p.avatar} {p.name} przejmuje
+                </Button>
+              ))}
+          </div>
+        ) : null}
       </Panel>
     </>
   )

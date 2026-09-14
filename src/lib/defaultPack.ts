@@ -1,6 +1,7 @@
 import type {
   AuctionQuestion,
   Category,
+  EstimationQuestion,
   FinalQuestion,
   ListQuestion,
   Pack,
@@ -16,6 +17,7 @@ export const DEFAULT_RULES: PackRules = {
   listPayoutStep: 200,
   auctionSeconds: 60,
   finalAnswerSeconds: 45,
+  answerTimerSeconds: 20,
   hostPin: '1234',
 }
 
@@ -61,6 +63,10 @@ function list(prompt: string, items: string[]): ListQuestion {
 
 function auction(prompt: string, items: string[]): AuctionQuestion {
   return { id: nid('q'), kind: 'auction', prompt, items, timerSeconds: 60 }
+}
+
+function estimate(prompt: string, answer: number, unit?: string): EstimationQuestion {
+  return { id: nid('e'), prompt, answer, unit }
 }
 
 const categories: Category[] = [
@@ -352,6 +358,14 @@ const categories: Category[] = [
   },
 ]
 
+const estimation: EstimationQuestion[] = [
+  estimate('Ile metrów wysokości ma Pałac Kultury i Nauki w Warszawie (z iglicą)?', 237, 'm'),
+  estimate('Ile kilometrów długości ma Wisła?', 1047, 'km'),
+  estimate('W którym roku odbyły się pierwsze nowożytne igrzyska olimpijskie?', 1896),
+  estimate('Ile schodów trzeba pokonać, żeby wejść na szczyt Wieży Eiffla?', 1665),
+  estimate('Ile ważyła najcięższa dynia świata (w kg, rekord)?', 1226, 'kg'),
+]
+
 const final: FinalQuestion[] = [
   {
     id: nid('f'),
@@ -382,6 +396,7 @@ export const DEFAULT_PACK: Pack = {
   rules: DEFAULT_RULES,
   categories,
   final,
+  estimation,
 }
 
 export const WHEEL_SEGMENTS = [

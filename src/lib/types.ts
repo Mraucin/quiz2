@@ -59,6 +59,22 @@ export interface AuctionQuestion extends QuestionBase {
 
 export type Question = StandardQuestion | WheelQuestion | ListQuestion | AuctionQuestion
 
+/**
+ * A numeric-guess question used to pick who gets first designating rights at the start of the
+ * game (and to break ties between round winners). Not part of the board — drawn from its own
+ * pool so a tie-break round never repeats the same question (and thus the same guesses).
+ */
+export interface EstimationQuestion {
+  id: string
+  prompt: string
+  media?: Media
+  /** The number players are trying to guess closest to. */
+  answer: number
+  /** Optional unit shown after the answer, e.g. "km", "kg", "lat". */
+  unit?: string
+  notes?: string
+}
+
 export interface Category {
   id: string
   name: string
@@ -89,6 +105,8 @@ export interface PackRules {
   listPayoutStep: number
   auctionSeconds: number
   finalAnswerSeconds: number
+  /** How long an assigned player has to answer a standard question once the admin starts the timer. */
+  answerTimerSeconds: number
   /** PIN wymagany, żeby wejść na /admin i /editor — chroni klucze odpowiedzi przed graczami. */
   hostPin: string
 }
@@ -101,6 +119,8 @@ export interface Pack {
   rules: PackRules
   categories: Category[]
   final: FinalQuestion[]
+  /** Pool of numeric-guess questions for the estimation round(s) that open the game. */
+  estimation: EstimationQuestion[]
 }
 
 /* ------------------------------------------------------------------ *
@@ -115,6 +135,12 @@ export interface Player {
   color: string
   score: number
   connected: boolean
+  /**
+   * Timestamp (ms) of when this player became continuously disconnected, or `null` while
+   * connected. Lets time-limited turns (e.g. Koło fortuny) auto-skip someone who's been gone
+   * a while instead of stalling the whole game on them.
+   */
+  disconnectedAt: number | null
   /** Hot-seat player added from the admin console (no device of their own). */
   local: boolean
 }
@@ -196,6 +222,26 @@ export interface AuctionRuntime {
 
 export type QuestionStage = 'reading' | 'open' | 'locked' | 'resolved'
 
+/**
+ * Who is designating/answering a standard question, and the takeover queue around them.
+ * `lockedPlayerId` on the enclosing `ActiveQuestion` is repurposed under this flow to mean
+ * "whoever currently holds the floor" — the assignee at first, then whichever queued taker
+ * gets the floor next if the assignee whiffs.
+ */
+export interface StandardAssignment {
+  /** Gets to pick the next category + assignee once this question resolves. */
+  designatorId: string
+  /** The player this question was originally assigned to. */
+  assignedPlayerId: string
+  timerSeconds: number
+  /** Set once the admin clicks "start timer" for whoever currently holds the floor. */
+  timerEndsAt: number | null
+  /** Click-order queue of players waiting for a shot if the current holder fails. */
+  takeoverQueue: string[]
+  /** Everyone (assignee or a taker) who already had — and failed — their turn on this question. */
+  attempted: string[]
+}
+
 export interface ActiveQuestion {
   categoryId: string
   questionId: string
@@ -207,8 +253,6 @@ export interface ActiveQuestion {
   speak?: string
   choices?: { id: string; text: string; media?: PublicMedia }[]
   stage: QuestionStage
-  buzzersOpen: boolean
-  buzzOrder: string[]
   lockedPlayerId: string | null
   wrongPlayers: string[]
   selections: Record<string, string>
@@ -217,9 +261,32 @@ export interface ActiveQuestion {
   answerText?: string
   answerMedia?: PublicMedia
   correctChoiceId?: string
+  /** Only set for `kind: 'standard'` — see `StandardAssignment`. */
+  assignment?: StandardAssignment
   wheel?: WheelRuntime
   list?: ListRuntime
   auction?: AuctionRuntime
+}
+
+/**
+ * A running (or just-finished) estimation round. `correctAnswer`/`winnerIds` are only ever
+ * added once the admin reveals — never present beforehand, since this whole object is
+ * broadcast verbatim to every player.
+ */
+export interface EstimationRuntime {
+  questionId: string
+  prompt: string
+  media?: PublicMedia
+  unit?: string
+  /** Everyone still competing this round — all players in round 1, only the tied leaders in a tie-break. */
+  eligiblePlayerIds: string[]
+  guesses: Record<string, number>
+  revealed: boolean
+  correctAnswer?: number
+  /** More than one entry means a tie — another round follows with just these players. */
+  winnerIds?: string[]
+  /** Questions already used this game, so a tie-break round never repeats one. */
+  usedQuestionIds: string[]
 }
 
 export type FinalStage = 'category' | 'wagering' | 'question' | 'answering' | 'reveal' | 'scored'
@@ -243,7 +310,7 @@ export interface FinalRuntime
   timerEndsAt: number | null
 }
 
-export type Phase = 'lobby' | 'board' | 'question' | 'final' | 'results'
+export type Phase = 'lobby' | 'estimation' | 'board' | 'question' | 'final' | 'results'
 
 export interface LogEntry {
   id: string
@@ -261,6 +328,10 @@ export interface GameState {
   currentPlayerId: string | null
   board: BoardCategory[]
   active: ActiveQuestion | null
+  /** Non-null while an estimation round is in progress (see `Phase = 'estimation'`). */
+  estimation: EstimationRuntime | null
+  /** How many times a question has been taken over so far this game — capped at 4 (see `requestTakeover`). */
+  takeoversUsed: number
   final: FinalRuntime | null
   log: LogEntry[]
   rules: PackRules
@@ -276,7 +347,8 @@ export interface GameState {
 
 export type PlayerAction =
   | { type: 'pick'; categoryId: string; questionId: string }
-  | { type: 'buzz' }
+  | { type: 'estimateGuess'; amount: number }
+  | { type: 'requestTakeover' }
   | { type: 'choose'; choiceId: string }
   | { type: 'openAnswer'; text: string }
   | { type: 'wheelSpin' }
@@ -293,9 +365,10 @@ export type AdminAction =
   | { type: 'renamePlayer'; playerId: string; name: string }
   | { type: 'startGame' }
   | { type: 'setCurrentPlayer'; playerId: string }
-  | { type: 'openQuestion'; categoryId: string; questionId: string }
-  | { type: 'setBuzzers'; open: boolean }
-  | { type: 'lockPlayer'; playerId: string | null }
+  | { type: 'estimateReveal' }
+  | { type: 'estimateAdvance' }
+  | { type: 'openQuestion'; categoryId: string; questionId: string; assignedPlayerId?: string }
+  | { type: 'startAnswerTimer'; seconds?: number }
   | { type: 'judge'; playerId: string; correct: boolean }
   | { type: 'revealAnswer' }
   | { type: 'closeQuestion'; markUsed?: boolean }

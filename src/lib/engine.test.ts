@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PACK, WHEEL_SEGMENTS } from './defaultPack'
-import { applyAction, createInitialState, joinPlayer } from './engine'
+import { applyAction, createInitialState, joinPlayer, setConnected } from './engine'
 import type { AdminAction, GameState, Pack, PlayerAction } from './types'
 
 const pack: Pack = structuredClone(DEFAULT_PACK)
@@ -31,8 +31,20 @@ function lobbyWithPlayers(names: string[]) {
 }
 
 function startedGame(names = ['Ala', 'Bolek', 'Cezary']) {
-  const { state, ids } = lobbyWithPlayers(names)
-  return { state: admin(state, { type: 'startGame' }), ids }
+  const { state: lobby, ids } = lobbyWithPlayers(names)
+  let state = admin(lobby, { type: 'startGame' })
+  // Deterministically resolve the opening estimation round so ids[0] always wins outright (no
+  // tie) and lands on the board holding first picking rights — this is what all the pre-existing
+  // board/question tests below are written against.
+  if (state.phase === 'estimation' && state.estimation) {
+    const correct = pack.estimation.find((q) => q.id === state.estimation?.questionId)?.answer ?? 0
+    ids.forEach((id, index) => {
+      state = asPlayer(state, id, { type: 'estimateGuess', amount: correct + index })
+    })
+    state = admin(state, { type: 'estimateReveal' })
+    state = admin(state, { type: 'estimateAdvance' })
+  }
+  return { state, ids }
 }
 
 function openCell(state: GameState, categoryName: string, row: number) {
@@ -71,17 +83,77 @@ describe('lobby i start', () => {
   })
 })
 
-describe('pytania zwykłe', () => {
-  it('nagradza poprawną odpowiedź i przekazuje wybór graczowi', () => {
-    const { state: started, ids } = startedGame()
-    let state = openCell(started, 'Piłkarze nieznani', 2)
-    state = admin(state, { type: 'setBuzzers', open: true })
-    state = asPlayer(state, ids[1], { type: 'buzz' })
-    expect(state.active?.lockedPlayerId).toBe(ids[1])
-    expect(state.active?.buzzersOpen).toBe(false)
-    state = admin(state, { type: 'judge', playerId: ids[1], correct: true })
-    expect(state.players[1].score).toBe(300)
+describe('runda oszacowania', () => {
+  it('startGame otwiera rundę oszacowania zamiast od razu planszy', () => {
+    const { state: lobby } = lobbyWithPlayers(['Ala', 'Bolek', 'Cezary'])
+    const started = admin(lobby, { type: 'startGame' })
+    expect(started.phase).toBe('estimation')
+    expect(started.estimation?.eligiblePlayerIds).toHaveLength(3)
+  })
+
+  it('wygrywa gracz z odpowiedzią najbliższą prawdy i to on wyznacza pierwsze pytanie', () => {
+    const { state: lobby, ids } = lobbyWithPlayers(['Ala', 'Bolek', 'Cezary'])
+    let state = admin(lobby, { type: 'startGame' })
+    const correct = pack.estimation.find((q) => q.id === state.estimation?.questionId)!.answer
+    state = asPlayer(state, ids[0], { type: 'estimateGuess', amount: correct + 10 })
+    state = asPlayer(state, ids[1], { type: 'estimateGuess', amount: correct + 1 })
+    state = asPlayer(state, ids[2], { type: 'estimateGuess', amount: correct + 5 })
+    state = admin(state, { type: 'estimateReveal' })
+    expect(state.estimation?.winnerIds).toEqual([ids[1]])
+    state = admin(state, { type: 'estimateAdvance' })
+    expect(state.phase).toBe('board')
     expect(state.currentPlayerId).toBe(ids[1])
+  })
+
+  it('remis uruchamia dogrywkę tylko dla remisujących, z nowym pytaniem', () => {
+    const { state: lobby, ids } = lobbyWithPlayers(['Ala', 'Bolek', 'Cezary'])
+    let state = admin(lobby, { type: 'startGame' })
+    const firstQuestionId = state.estimation?.questionId
+    const correct = pack.estimation.find((q) => q.id === firstQuestionId)!.answer
+    state = asPlayer(state, ids[0], { type: 'estimateGuess', amount: correct + 1 })
+    state = asPlayer(state, ids[1], { type: 'estimateGuess', amount: correct + 1 })
+    state = asPlayer(state, ids[2], { type: 'estimateGuess', amount: correct + 20 })
+    state = admin(state, { type: 'estimateReveal' })
+    expect([...(state.estimation?.winnerIds ?? [])].sort()).toEqual([ids[0], ids[1]].sort())
+    state = admin(state, { type: 'estimateAdvance' })
+    expect(state.phase).toBe('estimation')
+    expect([...(state.estimation?.eligiblePlayerIds ?? [])].sort()).toEqual([ids[0], ids[1]].sort())
+    expect(state.estimation?.revealed).toBe(false)
+  })
+})
+
+describe('pytania zwykłe', () => {
+  it('otwarcie pytania przypisuje je bieżącemu graczowi (faza czytania, bez zablokowanego odpowiadającego)', () => {
+    const { state: started, ids } = startedGame()
+    const state = openCell(started, 'Piłkarze nieznani', 2)
+    expect(state.active?.stage).toBe('reading')
+    expect(state.active?.assignment?.designatorId).toBe(ids[0])
+    expect(state.active?.assignment?.assignedPlayerId).toBe(ids[0])
+    expect(state.active?.lockedPlayerId).toBeNull()
+  })
+
+  it('admin może wyznaczyć pytanie innemu graczowi niż wybierający kategorię', () => {
+    const { state: started, ids } = startedGame()
+    const category = categoryByName('Piłkarze nieznani')
+    const state = admin(started, {
+      type: 'openQuestion',
+      categoryId: category.id,
+      questionId: category.questions[2].id,
+      assignedPlayerId: ids[1],
+    })
+    expect(state.active?.assignment?.designatorId).toBe(ids[0])
+    expect(state.active?.assignment?.assignedPlayerId).toBe(ids[1])
+  })
+
+  it('nagradza poprawną odpowiedź wyznaczonego gracza i oddaje mu prawo wyznaczania', () => {
+    const { state: started, ids } = startedGame()
+    let state = openCell(started, 'Piłkarze nieznani', 2) // 300 pkt, wyznaczone na ids[0]
+    state = admin(state, { type: 'startAnswerTimer' })
+    expect(state.active?.lockedPlayerId).toBe(ids[0])
+    expect(state.active?.stage).toBe('locked')
+    state = admin(state, { type: 'judge', playerId: ids[0], correct: true })
+    expect(state.players[0].score).toBe(300)
+    expect(state.currentPlayerId).toBe(ids[0])
     expect(state.active?.answerRevealed).toBe(true)
     state = admin(state, { type: 'closeQuestion' })
     expect(state.phase).toBe('board')
@@ -89,20 +161,30 @@ describe('pytania zwykłe', () => {
     expect(category?.cells[2].used).toBe(true)
   })
 
-  it('karze błąd bez pauzy — gracz gra dalej normalnie', () => {
+  it('karze błędną odpowiedź; bez przejęcia wyznaczający dostaje połowę wartości i wyznacza znowu', () => {
     const { state: started, ids } = startedGame()
-    let state = openCell(started, 'Fobie', 1)
-    state = admin(state, { type: 'setBuzzers', open: true })
-    state = asPlayer(state, ids[0], { type: 'buzz' })
+    const category = categoryByName('Fobie')
+    let state = admin(started, {
+      type: 'openQuestion',
+      categoryId: category.id,
+      questionId: category.questions[1].id, // 200 pkt
+      assignedPlayerId: ids[1],
+    })
+    state = admin(state, { type: 'startAnswerTimer' })
+    state = admin(state, { type: 'judge', playerId: ids[1], correct: false })
+    expect(state.players[1].score).toBe(-200) // standardowa kara za błąd
+    expect(state.players[0].score).toBe(100) // połowa wartości dla wyznaczającego (ids[0] != ids[1])
+    expect(state.currentPlayerId).toBe(ids[0]) // wyznaczający wyznacza ponownie
+    expect(state.active?.stage).toBe('resolved')
+  })
+
+  it('nie daje bonusu, gdy wyznaczający sam sobie wyznaczył pytanie (runda 1)', () => {
+    const { state: started, ids } = startedGame()
+    let state = openCell(started, 'Fobie', 0) // ids[0] jest i wyznaczającym, i wyznaczonym
+    state = admin(state, { type: 'startAnswerTimer' })
     state = admin(state, { type: 'judge', playerId: ids[0], correct: false })
-    expect(state.players[0].score).toBe(-200)
-    expect(state.active?.buzzersOpen).toBe(true)
-    // gracz po błędzie nie może zgłosić się ponownie do tego samego pytania…
-    state = asPlayer(state, ids[0], { type: 'buzz' })
-    expect(state.active?.lockedPlayerId).toBeNull()
-    // …ale nie ma żadnej pauzy — normalnie wraca do kolejki wyboru kategorii.
-    state = admin(state, { type: 'closeQuestion' })
-    expect(state.currentPlayerId).toBe(ids[1])
+    expect(state.players[0].score).toBe(-100) // tylko standardowa kara, bez bonusu
+    expect(state.currentPlayerId).toBe(ids[0])
   })
 
   it('nie pozwala wybrać pytania graczowi bez kolejki', () => {
@@ -129,10 +211,62 @@ describe('pytania zwykłe', () => {
     expect(state.active).toBeNull()
   })
 
-  it('zgłoszenia są otwarte od razu po otwarciu pytania przez admina', () => {
-    const { state: started } = startedGame()
-    const state = openCell(started, 'Fobie', 0)
-    expect(state.active?.buzzersOpen).toBe(true)
+  it('pozwala przejąć pytanie z więcej niż 2 odpowiedziami, jeśli wyznaczony nie odpowie', () => {
+    const { state: started, ids } = startedGame()
+    let state = openCell(started, 'Fobie', 0) // ABCD, 4 opcje, wyznaczone na ids[0]
+    state = admin(state, { type: 'startAnswerTimer' })
+    state = asPlayer(state, ids[1], { type: 'requestTakeover' })
+    expect(state.active?.assignment?.takeoverQueue).toEqual([ids[1]])
+    expect(state.takeoversUsed).toBe(1)
+    state = admin(state, { type: 'judge', playerId: ids[0], correct: false })
+    expect(state.players[0].score).toBe(-100)
+    expect(state.active?.lockedPlayerId).toBe(ids[1])
+    expect(state.active?.stage).toBe('locked')
+    state = admin(state, { type: 'judge', playerId: ids[1], correct: true })
+    expect(state.players[1].score).toBe(100)
+    expect(state.currentPlayerId).toBe(ids[1])
+  })
+
+  it('karze gracza, który zgłosił przejęcie, jeśli pierwotny gracz jednak odpowie poprawnie', () => {
+    const { state: started, ids } = startedGame()
+    let state = openCell(started, 'Fobie', 0) // 100 pkt, wyznaczone na ids[0]
+    state = admin(state, { type: 'startAnswerTimer' })
+    state = asPlayer(state, ids[1], { type: 'requestTakeover' })
+    state = admin(state, { type: 'judge', playerId: ids[0], correct: true })
+    expect(state.players[0].score).toBe(100)
+    expect(state.players[1].score).toBe(-100) // kara za przedwczesne przejęcie
+    expect(state.currentPlayerId).toBe(ids[0])
+  })
+
+  it('nie pozwala przejąć pytania z dwiema (lub mniej) odpowiedziami', () => {
+    const { state: started, ids } = startedGame()
+    let state = openCell(started, 'Sanah czy Adolf Hitler', 0) // tylko 2 opcje
+    state = admin(state, { type: 'startAnswerTimer' })
+    state = asPlayer(state, ids[1], { type: 'requestTakeover' })
+    expect(state.active?.assignment?.takeoverQueue).toEqual([])
+    expect(state.takeoversUsed).toBe(0)
+  })
+
+  it('limituje przejęcia do 4 na całą grę', () => {
+    const { state: started, ids } = startedGame()
+    let state = started
+    for (let i = 0; i < 4; i += 1) {
+      state = openCell(state, 'Fobie', i)
+      state = admin(state, { type: 'startAnswerTimer' })
+      const assignee = state.active!.assignment!.assignedPlayerId
+      const requester = ids.find((id) => id !== assignee)!
+      state = asPlayer(state, requester, { type: 'requestTakeover' })
+      state = admin(state, { type: 'judge', playerId: assignee, correct: true })
+      state = admin(state, { type: 'closeQuestion' })
+    }
+    expect(state.takeoversUsed).toBe(4)
+    state = openCell(state, 'Fobie', 4)
+    state = admin(state, { type: 'startAnswerTimer' })
+    const assignee = state.active!.assignment!.assignedPlayerId
+    const requester = ids.find((id) => id !== assignee)!
+    state = asPlayer(state, requester, { type: 'requestTakeover' })
+    expect(state.active?.assignment?.takeoverQueue).toEqual([])
+    expect(state.takeoversUsed).toBe(4)
   })
 })
 
@@ -240,6 +374,81 @@ describe('licytacje', () => {
 
     state = admin(state, { type: 'auctionJudge', correct: false })
     expect(state.players[1].score).toBe(-300)
+  })
+})
+
+describe('rozłączenia i heartbeat', () => {
+  it('setConnected zapisuje moment rozłączenia i czyści go po powrocie', () => {
+    const { state: started, ids } = startedGame()
+    let state = setConnected(started, ids[0], false)
+    const disconnectedAt = state.players[0].disconnectedAt
+    expect(state.players[0].connected).toBe(false)
+    expect(disconnectedAt).not.toBeNull()
+
+    // Ponowne wywołanie "disconnected" (np. przez heartbeat po spóźnionym close) nie
+    // przesuwa momentu rozłączenia — liczy się, kiedy naprawdę zniknął, nie kiedy zauważyliśmy.
+    vi.useFakeTimers()
+    vi.advanceTimersByTime(5000)
+    state = setConnected(state, ids[0], false)
+    expect(state.players[0].disconnectedAt).toBe(disconnectedAt)
+    vi.useRealTimers()
+
+    state = setConnected(state, ids[0], true)
+    expect(state.players[0].connected).toBe(true)
+    expect(state.players[0].disconnectedAt).toBeNull()
+  })
+
+  it('wheelPassTurn loguje, którego gracza pominięto', () => {
+    const { state: started, ids } = startedGame()
+    let state = openCell(started, 'Koło fortuny', 0)
+    expect(state.active?.wheel?.turnPlayerId).toBe(ids[0])
+    state = admin(state, { type: 'wheelPassTurn' })
+    expect(state.active?.wheel?.turnPlayerId).toBe(ids[1])
+    expect(state.log[0].text).toContain(state.players[0].name)
+  })
+})
+
+describe('wyrzucanie gracza w trakcie gry', () => {
+  it('zwalnia zablokowanego gracza w pytaniu zwykłym, gdy admin go wyrzuca', () => {
+    const { state: started, ids } = startedGame()
+    let state = openCell(started, 'Piłkarze nieznani', 0) // wyznaczone na ids[0]
+    state = admin(state, { type: 'startAnswerTimer' })
+    expect(state.active?.lockedPlayerId).toBe(ids[0])
+
+    state = admin(state, { type: 'removePlayer', playerId: ids[0] })
+    expect(state.players.find((p) => p.id === ids[0])).toBeUndefined()
+    expect(state.active?.lockedPlayerId).toBeNull()
+  })
+
+  it('przesuwa kolejkę w kole fortuny, gdy wyrzucany jest gracz, który akurat kręci', () => {
+    const { state: started, ids } = startedGame()
+    let state = openCell(started, 'Koło fortuny', 0)
+    expect(state.active?.wheel?.turnPlayerId).toBe(ids[0])
+
+    state = admin(state, { type: 'removePlayer', playerId: ids[0] })
+    expect(state.active?.wheel?.order).not.toContain(ids[0])
+    expect(state.active?.wheel?.turnPlayerId).toBe(ids[1])
+  })
+
+  it('czyści lidera licytacji, gdy admin go wyrzuca', () => {
+    const { state: started, ids } = startedGame()
+    let state = openCell(started, 'Licytacje', 0)
+    state = asPlayer(state, ids[1], { type: 'auctionBid' })
+    expect(state.active?.auction?.leaderId).toBe(ids[1])
+
+    state = admin(state, { type: 'removePlayer', playerId: ids[1] })
+    expect(state.active?.auction?.leaderId).toBeNull()
+  })
+
+  it('usuwa gracza z obstawiania finałowego, żeby nie blokował odkrywania odpowiedzi', () => {
+    const { state: started, ids } = startedGame()
+    let state = admin(started, { type: 'startFinal' })
+    state = admin(state, { type: 'finalStage', stage: 'wagering' })
+    state = asPlayer(state, ids[0], { type: 'finalWager', amount: 500 })
+    expect(state.final?.wagers[ids[0]]).toBe(500)
+
+    state = admin(state, { type: 'removePlayer', playerId: ids[0] })
+    expect(state.final?.wagers[ids[0]]).toBeUndefined()
   })
 })
 

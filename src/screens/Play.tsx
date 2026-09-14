@@ -32,7 +32,11 @@ export function PlayScreen({
   const [name, setName] = useState(remembered?.name ?? '')
   const [avatar, setAvatar] = useState(remembered?.avatar ?? AVATARS[0])
 
-  if (status !== 'joined' || !state || !me) {
+  // Once we've successfully joined, keep showing the game even if the connection drops for a
+  // moment (host tab reload, flaky wifi) — `usePlayerGame` keeps retrying in the background
+  // and `state`/`me` stay as they were, so there's nothing to re-render here except a small
+  // banner (below) letting the player know we're reconnecting.
+  if (!state || !me) {
     return (
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-5 p-5">
         <div className="flex items-center gap-2">
@@ -86,9 +90,7 @@ export function PlayScreen({
             variant="primary"
             size="lg"
             disabled={status === 'connecting' || code.length < 4 || !name.trim()}
-            onClick={() =>
-              join(code.trim(), name.trim(), avatar, remembered?.code === code.trim().toUpperCase() ? remembered?.playerId : undefined)
-            }
+            onClick={() => join(code.trim(), name.trim(), avatar)}
           >
             {status === 'connecting' ? 'Łączę…' : 'Wchodzę do lobby'}
           </Button>
@@ -126,6 +128,13 @@ export function PlayScreen({
           </Badge>
         </div>
       </header>
+
+      {status === 'reconnecting' ? (
+        <div className="panel flex items-center gap-2 border-gold/50 bg-gold/10 px-3 py-2 text-sm text-gold">
+          <span className="animate-buzz size-2 rounded-full bg-gold" />
+          Łączę ponownie z hostem… Twoje miejsce w grze jest zachowane.
+        </div>
+      ) : null}
 
       <PlayerStrip state={state} highlightId={state.currentPlayerId} meId={me.id} compact />
 
@@ -173,6 +182,10 @@ function PlayerBody({
     )
   }
 
+  if (state.phase === 'estimation') {
+    return <EstimationPlayerView state={state} me={me} send={send} />
+  }
+
   if (state.phase === 'board' || !state.active) {
     const myTurn = state.currentPlayerId === me.id
     const current = playerById(state, state.currentPlayerId)
@@ -193,8 +206,15 @@ function PlayerBody({
   }
 
   const active = state.active
-  const iAmLocked = active.lockedPlayerId === me.id
-  const locked = playerById(state, active.lockedPlayerId)
+  const assignment = active.assignment
+  // Privacy twist: while the admin is reading a standard question, only the assignee's phone
+  // shows it — everyone else just sees who's up and waits to find out if they answer. Once the
+  // timer starts, the question is fair game for a takeover, so everyone can see it.
+  const hidePrompt =
+    active.kind === 'standard' &&
+    active.stage === 'reading' &&
+    Boolean(assignment) &&
+    assignment?.assignedPlayerId !== me.id
 
   return (
     <div className="flex flex-col gap-3">
@@ -203,12 +223,21 @@ function PlayerBody({
           <Badge tone="gold">{active.categoryName}</Badge>
           <span className="text-display text-xl text-gold">{formatPoints(active.value)}</span>
         </div>
-        <p className="mt-3 text-lg leading-snug font-semibold">{active.prompt}</p>
-        {active.media?.src ? (
-          <MediaView media={active.media} className="mt-3" />
-        ) : active.media ? (
-          <p className="mt-2 text-sm text-white/50">Materiał odtwarza prowadzący na dużym ekranie.</p>
-        ) : null}
+        {hidePrompt ? (
+          <p className="mt-3 text-sm text-white/50">
+            Prowadzący czyta teraz pytanie tylko dla{' '}
+            {playerById(state, assignment?.assignedPlayerId)?.name ?? 'wyznaczonego gracza'}.
+          </p>
+        ) : (
+          <>
+            <p className="mt-3 text-lg leading-snug font-semibold">{active.prompt}</p>
+            {active.media?.src ? (
+              <MediaView media={active.media} className="mt-3" />
+            ) : active.media ? (
+              <p className="mt-2 text-sm text-white/50">Materiał odtwarza prowadzący na dużym ekranie.</p>
+            ) : null}
+          </>
+        )}
         {active.answerRevealed ? (
           <div className="mt-3 rounded-xl border border-mint/60 bg-mint/10 p-3">
             <div className="text-xs text-mint uppercase">Poprawna odpowiedź</div>
@@ -217,15 +246,7 @@ function PlayerBody({
         ) : null}
       </Panel>
 
-      {active.kind === 'standard' ? (
-        <StandardPlayerControls
-          state={state}
-          me={me}
-          send={send}
-          iAmLocked={iAmLocked}
-          lockedName={locked?.name}
-        />
-      ) : null}
+      {active.kind === 'standard' ? <StandardPlayerControls state={state} me={me} send={send} /> : null}
       {active.kind === 'wheel' ? <WheelPlayerControls state={state} me={me} send={send} /> : null}
       {active.kind === 'list' ? <ListPlayerView state={state} me={me} /> : null}
       {active.kind === 'auction' ? (
@@ -239,93 +260,200 @@ function StandardPlayerControls({
   state,
   me,
   send,
-  iAmLocked,
-  lockedName,
 }: {
   state: GameState
   me: Player
   send: (action: PlayerAction) => void
-  iAmLocked: boolean
-  lockedName?: string
 }) {
   const active = state.active
   const [draft, setDraft] = useState('')
-  if (!active) return null
-  const canBuzz = active.buzzersOpen && !active.wrongPlayers.includes(me.id)
+  if (!active || !active.assignment) return null
+  const assignment = active.assignment
+  const isHolder = active.lockedPlayerId === me.id
+  const isAssignee = assignment.assignedPlayerId === me.id
+  const holder = playerById(state, active.lockedPlayerId)
   const mySelection = active.selections[me.id]
+  const alreadyAttempted = assignment.attempted.includes(me.id)
+  const inQueue = assignment.takeoverQueue.includes(me.id)
+  const takeoverCapReached = state.takeoversUsed >= 4
+  const takeoverEligible = Boolean(active.choices && active.choices.length > 2)
+  const canRequestTakeover =
+    active.stage === 'locked' &&
+    !isHolder &&
+    !alreadyAttempted &&
+    !inQueue &&
+    !takeoverCapReached &&
+    takeoverEligible
+
+  if (active.stage === 'reading') {
+    return (
+      <Panel className="flex flex-col items-center gap-3 py-8 text-center">
+        {isAssignee ? (
+          <>
+            <div className="text-display text-xl text-mint">To pytanie jest dla Ciebie!</div>
+            <p className="text-sm text-white/60">
+              Prowadzący zaraz zacznie odliczanie — przygotuj się na odpowiedź.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="text-display text-xl text-gold">Prowadzący czyta pytanie…</div>
+            <p className="text-sm text-white/60">
+              Odpowiada {playerById(state, assignment.assignedPlayerId)?.avatar}{' '}
+              {playerById(state, assignment.assignedPlayerId)?.name}.
+            </p>
+          </>
+        )}
+      </Panel>
+    )
+  }
+
+  if (active.stage === 'resolved') {
+    return <Panel className="text-center text-sm text-white/60">Pytanie rozliczone.</Panel>
+  }
+
+  if (isHolder) {
+    return (
+      <Panel className="flex flex-col gap-3">
+        <div className="text-center text-display text-xl text-mint">Masz głos!</div>
+        {active.choices?.length ? (
+          <div className="grid gap-2">
+            {active.choices.map((choice, index) => (
+              <Button
+                key={choice.id}
+                size="lg"
+                variant={mySelection === choice.id ? 'primary' : 'secondary'}
+                className="justify-start text-left"
+                onClick={() => send({ type: 'choose', choiceId: choice.id })}
+              >
+                <span className="text-display mr-2 text-gold">{letters[index]}</span>
+                {choice.text}
+              </Button>
+            ))}
+          </div>
+        ) : (
+          <form
+            className="flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault()
+              send({ type: 'openAnswer', text: draft })
+            }}
+          >
+            <Input
+              placeholder="Wpisz odpowiedź (albo powiedz na głos)"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <Button type="submit" variant="primary">
+              <Send className="size-4" />
+            </Button>
+          </form>
+        )}
+        <p className="text-center text-xs text-white/45">
+          Prowadzący ocenia odpowiedź. Błąd = −{formatPoints(active.value)}.
+        </p>
+      </Panel>
+    )
+  }
+
+  return (
+    <Panel className="flex flex-col items-center gap-3 py-6">
+      <p className="text-center text-sm text-white/55">
+        Odpowiada {holder?.avatar} {holder?.name}
+      </p>
+      {alreadyAttempted ? (
+        <Badge tone="coral">Już próbowałeś/aś to pytanie</Badge>
+      ) : inQueue ? (
+        <Badge tone="gold" className="animate-glow">
+          Jesteś w kolejce do przejęcia
+        </Badge>
+      ) : canRequestTakeover ? (
+        <Button size="lg" variant="primary" onClick={() => send({ type: 'requestTakeover' })}>
+          Przejmij pytanie
+        </Button>
+      ) : !takeoverEligible ? (
+        <p className="text-center text-xs text-white/40">
+          Tego pytania nie można przejąć (za mało odpowiedzi).
+        </p>
+      ) : takeoverCapReached ? (
+        <p className="text-center text-xs text-white/40">Limit przejęć na tę grę został wykorzystany.</p>
+      ) : null}
+    </Panel>
+  )
+}
+
+function EstimationPlayerView({
+  state,
+  me,
+  send,
+}: {
+  state: GameState
+  me: Player
+  send: (action: PlayerAction) => void
+}) {
+  const est = state.estimation
+  const [draft, setDraft] = useState('')
+  if (!est) return null
+  const eligible = est.eligiblePlayerIds.includes(me.id)
+  const myGuess = est.guesses[me.id]
+
+  if (!eligible) {
+    return (
+      <Panel className="flex flex-col items-center gap-3 py-10 text-center">
+        <div className="text-display text-xl text-gold">Dogrywka bez Ciebie</div>
+        <p className="text-sm text-white/60">
+          Ta runda oszacowania jest tylko dla graczy, którzy zremisowali. Czekaj na wynik.
+        </p>
+      </Panel>
+    )
+  }
 
   return (
     <Panel className="flex flex-col gap-3">
-      {active.stage === 'resolved' ? (
-        <div className="text-center text-sm text-white/60">Pytanie rozliczone.</div>
-      ) : iAmLocked ? (
-        <>
-          <div className="text-center text-display text-xl text-mint">Masz głos!</div>
-          {active.choices?.length ? (
-            <div className="grid gap-2">
-              {active.choices.map((choice, index) => (
-                <Button
-                  key={choice.id}
-                  size="lg"
-                  variant={mySelection === choice.id ? 'primary' : 'secondary'}
-                  className="justify-start text-left"
-                  onClick={() => send({ type: 'choose', choiceId: choice.id })}
-                >
-                  <span className="text-display mr-2 text-gold">{letters[index]}</span>
-                  {choice.text}
-                </Button>
-              ))}
+      <PanelTitle>Runda oszacowania</PanelTitle>
+      <p className="text-lg font-semibold">{est.prompt}</p>
+      {est.media?.src ? <MediaView media={est.media} className="mt-1" /> : null}
+      {!est.revealed ? (
+        myGuess !== undefined ? (
+          <div className="text-center">
+            <div className="text-display text-3xl text-gold">
+              {myGuess}
+              {est.unit ? ` ${est.unit}` : ''}
             </div>
-          ) : (
-            <form
-              className="flex gap-2"
-              onSubmit={(event) => {
-                event.preventDefault()
-                send({ type: 'openAnswer', text: draft })
-              }}
-            >
-              <Input
-                placeholder="Wpisz odpowiedź (albo powiedz na głos)"
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-              />
-              <Button type="submit" variant="primary">
-                <Send className="size-4" />
-              </Button>
-            </form>
-          )}
-          <p className="text-center text-xs text-white/45">
-            Prowadzący ocenia odpowiedź. Błąd = −{formatPoints(active.value)}.
-          </p>
-        </>
-      ) : (
-        <>
-          <button
-            type="button"
-            disabled={!canBuzz}
-            onClick={() => send({ type: 'buzz' })}
-            className={cn(
-              'grid h-40 place-items-center rounded-full border-4 text-display text-3xl transition',
-              canBuzz
-                ? 'animate-buzz border-gold bg-gold text-stage-900 active:scale-95'
-                : 'border-stage-600 bg-stage-800 text-white/30',
-            )}
+            <p className="text-sm text-white/55">Odpowiedź zapisana. Czekaj na resztę graczy.</p>
+          </div>
+        ) : (
+          <form
+            className="flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const amount = Number(draft.replace(',', '.'))
+              if (Number.isNaN(amount)) return
+              send({ type: 'estimateGuess', amount })
+            }}
           >
-            {canBuzz ? 'ZGŁOŚ SIĘ' : active.buzzersOpen ? 'Nie możesz' : 'Czekaj…'}
-          </button>
-          <p className="text-center text-sm text-white/55">
-            {lockedName
-              ? `Odpowiada ${lockedName}`
-              : active.buzzersOpen
-                ? 'Przycisk otwarty — kto pierwszy, ten lepszy!'
-                : 'Prowadzący czyta pytanie.'}
+            <Input
+              inputMode="decimal"
+              placeholder={est.unit ? `Twoja liczba (${est.unit})` : 'Twoja liczba'}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <Button type="submit" variant="primary">
+              <Send className="size-4" />
+            </Button>
+          </form>
+        )
+      ) : (
+        <div className="text-center">
+          <div className="text-xs text-mint uppercase">Poprawna odpowiedź</div>
+          <div className="text-display text-2xl">
+            {est.correctAnswer}
+            {est.unit ? ` ${est.unit}` : ''}
+          </div>
+          <p className="mt-2 text-sm text-white/60">
+            {est.winnerIds?.includes(me.id) ? 'Trafiłeś/aś najbliżej!' : 'Tym razem nie wygrałeś/aś.'}
           </p>
-          {active.wrongPlayers.includes(me.id) ? (
-            <Badge tone="coral" className="self-center">
-              Odpadłeś z tego pytania
-            </Badge>
-          ) : null}
-        </>
+        </div>
       )}
     </Panel>
   )

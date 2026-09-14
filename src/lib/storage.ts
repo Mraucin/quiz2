@@ -56,6 +56,7 @@ export function normalizePack(raw: unknown): Pack | null {
     rules: { ...DEFAULT_RULES, ...(pack.rules ?? {}) },
     categories: pack.categories,
     final: Array.isArray(pack.final) ? pack.final : [],
+    estimation: Array.isArray(pack.estimation) ? pack.estimation : [],
   }
 }
 

@@ -73,12 +73,54 @@ export function createInitialState(pack: Pack, code: string): GameState {
     currentPlayerId: null,
     board: buildBoard(pack),
     active: null,
+    estimation: null,
+    takeoversUsed: 0,
     final: null,
     log: [],
     rules: pack.rules,
     startedAt: null,
     version: 1,
     now: Date.now(),
+  }
+}
+
+/** Picks a not-yet-used estimation question, cycling back to the full pool if it's exhausted. */
+function pickEstimationQuestion(pack: Pack, usedQuestionIds: string[]) {
+  const pool = pack.estimation
+  if (pool.length === 0) return null
+  const fresh = pool.filter((q) => !usedQuestionIds.includes(q.id))
+  const candidates = fresh.length > 0 ? fresh : pool
+  return candidates[Math.floor(Math.random() * candidates.length)]
+}
+
+/**
+ * Kicks off an estimation round for `eligiblePlayerIds` (everyone at game start, or just the
+ * tied leaders of the previous round on a tie-break). Falls back straight to the board — first
+ * player in turn order designates — if the pack has no estimation questions configured.
+ */
+function startEstimationRound(
+  pack: Pack,
+  state: GameState,
+  eligiblePlayerIds: string[],
+  usedQuestionIds: string[],
+) {
+  const question = pickEstimationQuestion(pack, usedQuestionIds)
+  if (!question) {
+    state.phase = 'board'
+    state.estimation = null
+    state.currentPlayerId = eligiblePlayerIds[0] ?? state.turnOrder[0] ?? null
+    return
+  }
+  state.phase = 'estimation'
+  state.estimation = {
+    questionId: question.id,
+    prompt: question.prompt,
+    media: toPublicMedia(question.media),
+    unit: question.unit,
+    eligiblePlayerIds,
+    guesses: {},
+    revealed: false,
+    usedQuestionIds: [...usedQuestionIds, question.id],
   }
 }
 
@@ -92,6 +134,7 @@ export function joinPlayer(
   const existing = input.playerId ? playerById(state, input.playerId) : null
   if (existing) {
     existing.connected = true
+    existing.disconnectedAt = null
     existing.name = input.name || existing.name
     existing.avatar = input.avatar || existing.avatar
     if (!state.turnOrder.includes(existing.id)) state.turnOrder.push(existing.id)
@@ -107,6 +150,7 @@ export function joinPlayer(
     color: PLAYER_COLORS[index % PLAYER_COLORS.length],
     score: 0,
     connected: true,
+    disconnectedAt: null,
     local: false,
   })
   state.turnOrder.push(id)
@@ -119,7 +163,13 @@ export function setConnected(prev: GameState, playerId: string, connected: boole
   const state: GameState = structuredClone(prev)
   state.version = prev.version + 1
   const player = playerById(state, playerId)
-  if (player) player.connected = connected
+  if (player) {
+    player.connected = connected
+    // Keep the original disconnect timestamp if we somehow mark them disconnected twice in a
+    // row (heartbeat timeout after a transport close, say) — it's when they *actually* went
+    // quiet that matters for the Koło fortuny auto-skip, not when we last noticed.
+    player.disconnectedAt = connected ? null : (player.disconnectedAt ?? Date.now())
+  }
   return state
 }
 
@@ -183,7 +233,84 @@ function nextAliveInList(state: GameState, fromId: string | null) {
   return alive[(idx + 1) % alive.length]
 }
 
-function makeActive(pack: Pack, state: GameState, categoryId: string, questionId: string) {
+/**
+ * Strips a just-removed player out of whatever question or final round is in progress, so
+ * kicking someone mid-game (disconnected, or the admin just wants them out) never leaves the
+ * board stuck waiting on a buzz/turn/leader that can no longer happen. Called right after the
+ * player is dropped from `state.players`/`state.turnOrder` in the `removePlayer` action.
+ */
+function scrubPlayerFromActive(state: GameState, playerId: string) {
+  const a = state.active
+  if (a) {
+    a.wrongPlayers = a.wrongPlayers.filter((id) => id !== playerId)
+    delete a.selections[playerId]
+    delete a.openAnswers[playerId]
+    if (a.assignment) {
+      const assignment = a.assignment
+      assignment.takeoverQueue = assignment.takeoverQueue.filter((id) => id !== playerId)
+      assignment.attempted = assignment.attempted.filter((id) => id !== playerId)
+      if (a.lockedPlayerId === playerId) {
+        // Whoever held the floor left mid-answer — treat it like a failed attempt so the
+        // question doesn't stall forever, handing off to the next queued taker if there is one.
+        if (!assignment.attempted.includes(playerId)) assignment.attempted.push(playerId)
+        const nextTakerId = assignment.takeoverQueue.shift()
+        if (nextTakerId) {
+          a.lockedPlayerId = nextTakerId
+          assignment.timerEndsAt = Date.now() + assignment.timerSeconds * 1000
+        } else {
+          a.lockedPlayerId = null
+        }
+      }
+      if (assignment.designatorId === playerId) {
+        assignment.designatorId = eligibleTurnOrder(state)[0] ?? assignment.designatorId
+      }
+    } else if (a.lockedPlayerId === playerId) {
+      a.lockedPlayerId = null
+    }
+    if (a.wheel) {
+      const wheel = a.wheel
+      wheel.order = wheel.order.filter((id) => id !== playerId)
+      if (wheel.solveAttempt?.playerId === playerId) wheel.solveAttempt = null
+      if (wheel.turnPlayerId === playerId) {
+        wheel.turnPlayerId = nextWheelPlayer(state, playerId)
+      }
+    }
+    if (a.list) {
+      const list = a.list
+      list.order = list.order.filter((id) => id !== playerId)
+      delete list.lives[playerId]
+      list.eliminated = list.eliminated.filter((id) => id !== playerId)
+      if (list.turnPlayerId === playerId) {
+        list.turnPlayerId = nextAliveInList(state, playerId)
+      }
+    }
+    if (a.auction && a.auction.leaderId === playerId) {
+      a.auction.leaderId = null
+    }
+  }
+  const estimation = state.estimation
+  if (estimation) {
+    estimation.eligiblePlayerIds = estimation.eligiblePlayerIds.filter((id) => id !== playerId)
+    delete estimation.guesses[playerId]
+  }
+  const final = state.final
+  if (final) {
+    delete final.wagers[playerId]
+    delete final.locked[playerId]
+    delete final.answers[playerId]
+    delete final.submitted[playerId]
+    final.revealed = final.revealed.filter((id) => id !== playerId)
+    delete final.verdicts[playerId]
+  }
+}
+
+function makeActive(
+  pack: Pack,
+  state: GameState,
+  categoryId: string,
+  questionId: string,
+  assignedPlayerId?: string,
+) {
   const found = findQuestion(pack, categoryId, questionId)
   if (!found) return null
   const { category, question, value } = found
@@ -197,10 +324,6 @@ function makeActive(pack: Pack, state: GameState, categoryId: string, questionId
     media: toPublicMedia(question.media),
     speak: question.speak,
     stage: 'reading',
-    // Since the admin (not the players) now opens the tile, everyone already sees the prompt
-    // at the same time — no reason to make them wait for a separate "open buzzers" step.
-    buzzersOpen: true,
-    buzzOrder: [],
     lockedPlayerId: null,
     wrongPlayers: [],
     selections: {},
@@ -214,6 +337,21 @@ function makeActive(pack: Pack, state: GameState, categoryId: string, questionId
       text: choice.text,
       media: toPublicMedia(choice.media),
     }))
+  }
+
+  if (question.kind === 'standard') {
+    // The designator is whoever currently holds picking rights (`currentPlayerId`, reused for
+    // this — see `StandardAssignment`); they may hand the question to someone else entirely, or
+    // (round 1's estimation winner, who has no one to hand it to yet) to themselves.
+    const designatorId = state.currentPlayerId ?? assignedPlayerId ?? state.turnOrder[0] ?? ''
+    active.assignment = {
+      designatorId,
+      assignedPlayerId: assignedPlayerId ?? designatorId,
+      timerSeconds: pack.rules.answerTimerSeconds,
+      timerEndsAt: null,
+      takeoverQueue: [],
+      attempted: [],
+    }
   }
 
   if (question.kind === 'wheel') {
@@ -375,6 +513,7 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
           color: PLAYER_COLORS[state.players.length % PLAYER_COLORS.length],
           score: 0,
           connected: true,
+          disconnectedAt: null,
           local: true,
         })
         state.turnOrder.push(id)
@@ -384,6 +523,7 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
         state.players = state.players.filter((p) => p.id !== action.playerId)
         state.turnOrder = state.turnOrder.filter((id) => id !== action.playerId)
         if (state.currentPlayerId === action.playerId) advanceTurn(state, action.playerId)
+        scrubPlayerFromActive(state, action.playerId)
         break
       }
       case 'renamePlayer': {
@@ -393,11 +533,12 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
       }
       case 'startGame': {
         if (state.players.length === 0) break
-        state.phase = 'board'
         state.startedAt = Date.now()
         state.turnOrder = state.players.map((p) => p.id)
-        state.currentPlayerId = state.turnOrder[0]
+        state.currentPlayerId = null
         state.board = buildBoard(pack)
+        state.takeoversUsed = 0
+        startEstimationRound(pack, state, [...state.turnOrder], [])
         log(state, 'Gra rozpoczęta!', 'good')
         break
       }
@@ -405,44 +546,102 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
         state.currentPlayerId = action.playerId
         break
       }
+      case 'estimateReveal': {
+        const est = state.estimation
+        if (!est || est.revealed) break
+        const question = pack.estimation.find((q) => q.id === est.questionId)
+        if (!question) break
+        est.correctAnswer = question.answer
+        est.revealed = true
+        let best = Infinity
+        for (const pid of est.eligiblePlayerIds) {
+          const guess = est.guesses[pid]
+          if (guess === undefined) continue
+          best = Math.min(best, Math.abs(guess - question.answer))
+        }
+        est.winnerIds = est.eligiblePlayerIds.filter((pid) => {
+          const guess = est.guesses[pid]
+          return guess !== undefined && Math.abs(guess - question.answer) === best
+        })
+        break
+      }
+      case 'estimateAdvance': {
+        const est = state.estimation
+        if (!est || !est.revealed) break
+        const winners = est.winnerIds ?? []
+        if (winners.length > 1) {
+          startEstimationRound(pack, state, winners, est.usedQuestionIds)
+          log(state, 'Remis w oszacowaniu — dogrywka!', 'info')
+        } else {
+          const winnerId = winners[0] ?? eligibleTurnOrder(state)[0] ?? null
+          state.estimation = null
+          state.phase = 'board'
+          state.currentPlayerId = winnerId
+          const winner = playerById(state, winnerId)
+          if (winner) {
+            log(state, `${winner.avatar} ${winner.name} wygrywa oszacowanie i wybiera pierwszą kategorię`, 'good')
+          }
+        }
+        break
+      }
       case 'openQuestion': {
-        const next = makeActive(pack, state, action.categoryId, action.questionId)
+        const next = makeActive(pack, state, action.categoryId, action.questionId, action.assignedPlayerId)
         if (!next) break
         state.active = next
         state.phase = 'question'
         log(state, `${next.categoryName} za ${next.value}`)
         break
       }
-      case 'setBuzzers': {
+      case 'startAnswerTimer': {
         const a = active()
-        if (!a) break
-        a.buzzersOpen = action.open
-        if (action.open && a.stage === 'reading') a.stage = 'open'
-        break
-      }
-      case 'lockPlayer': {
-        const a = active()
-        if (!a) break
-        a.lockedPlayerId = action.playerId
-        a.stage = action.playerId ? 'locked' : 'open'
-        a.buzzersOpen = !action.playerId
+        if (!a || !a.assignment) break
+        if (action.seconds) a.assignment.timerSeconds = action.seconds
+        a.assignment.timerEndsAt = Date.now() + a.assignment.timerSeconds * 1000
+        a.lockedPlayerId = a.assignment.assignedPlayerId
+        a.stage = 'locked'
         break
       }
       case 'judge': {
         const a = active()
         if (!a) break
+        const assignment = a.assignment
+        if (!assignment) break
+        const holderId = action.playerId
         if (action.correct) {
-          scoreCorrect(state, action.playerId, a.value)
-          state.currentPlayerId = action.playerId
+          scoreCorrect(state, holderId, a.value)
+          // The original assignee came through while others had already queued to jump in —
+          // penalize the jumpers for grabbing early.
+          if (holderId === assignment.assignedPlayerId && assignment.takeoverQueue.length > 0) {
+            for (const jumperId of assignment.takeoverQueue) {
+              scoreWrong(state, jumperId, a.value)
+            }
+          }
+          state.currentPlayerId = holderId
+          a.lockedPlayerId = null
           a.stage = 'resolved'
-          a.buzzersOpen = false
           revealAnswer(pack, state)
         } else {
-          scoreWrong(state, action.playerId, a.value)
-          if (!a.wrongPlayers.includes(action.playerId)) a.wrongPlayers.push(action.playerId)
-          a.lockedPlayerId = null
-          a.stage = 'open'
-          a.buzzersOpen = true
+          scoreWrong(state, holderId, a.value)
+          if (!a.wrongPlayers.includes(holderId)) a.wrongPlayers.push(holderId)
+          if (!assignment.attempted.includes(holderId)) assignment.attempted.push(holderId)
+          const nextTakerId = assignment.takeoverQueue.shift()
+          if (nextTakerId) {
+            a.lockedPlayerId = nextTakerId
+            assignment.timerEndsAt = Date.now() + assignment.timerSeconds * 1000
+            const taker = playerById(state, nextTakerId)
+            if (taker) log(state, `${taker.avatar} ${taker.name} przejmuje pytanie`)
+          } else {
+            // Nobody left to try. The designator gets half the points (unless they assigned
+            // themselves — round 1's estimation winner has no one else to blame/credit) and
+            // picks the next category + player.
+            if (assignment.designatorId !== assignment.assignedPlayerId) {
+              scoreCorrect(state, assignment.designatorId, Math.round(a.value / 2))
+            }
+            state.currentPlayerId = assignment.designatorId
+            a.lockedPlayerId = null
+            a.stage = 'resolved'
+            revealAnswer(pack, state)
+          }
         }
         break
       }
@@ -509,9 +708,13 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
       case 'wheelPassTurn': {
         const wheel = active()?.wheel
         if (!wheel) break
+        const skipped = playerById(state, wheel.turnPlayerId)
         wheel.spinValue = null
         wheel.turnPlayerId = nextWheelPlayer(state, wheel.turnPlayerId)
         wheel.message = 'Kolejka przechodzi dalej.'
+        if (skipped) {
+          log(state, `Kolejka gracza ${skipped.avatar} ${skipped.name} pominięta`)
+        }
         break
       }
       case 'wheelJudge': {
@@ -774,16 +977,27 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
       // can no longer open a question themselves, whatever their turn.
       return prev
     }
-    case 'buzz': {
-      if (!a || !a.buzzersOpen) return prev
-      if (a.wrongPlayers.includes(playerId)) return prev
-      if (!a.buzzOrder.includes(playerId)) a.buzzOrder.push(playerId)
-      if (!a.lockedPlayerId) {
-        a.lockedPlayerId = playerId
-        a.buzzersOpen = false
-        a.stage = 'locked'
-        log(state, `${player.avatar} ${player.name} zgłasza się!`)
-      }
+    case 'estimateGuess': {
+      const est = state.estimation
+      if (!est || est.revealed) return prev
+      if (!est.eligiblePlayerIds.includes(playerId)) return prev
+      est.guesses[playerId] = action.amount
+      break
+    }
+    case 'requestTakeover': {
+      if (!a || !a.assignment) return prev
+      const assignment = a.assignment
+      if (a.stage !== 'locked') return prev
+      if (playerId === a.lockedPlayerId) return prev
+      if (assignment.attempted.includes(playerId)) return prev
+      if (assignment.takeoverQueue.includes(playerId)) return prev
+      // Only choice-based questions with more than two options can be taken over, and only a
+      // handful of times per game.
+      if (!a.choices || a.choices.length <= 2) return prev
+      if (state.takeoversUsed >= 4) return prev
+      assignment.takeoverQueue.push(playerId)
+      state.takeoversUsed += 1
+      log(state, `${player.avatar} ${player.name} chce przejąć pytanie`)
       break
     }
     case 'choose': {

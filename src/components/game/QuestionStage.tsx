@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, Hand, Hourglass, Lock, Trophy } from 'lucide-react'
+import { CheckCircle2, Circle, Hourglass, Lock, Trophy } from 'lucide-react'
 import { MediaView, SpeakButton } from '@/components/game/MediaView'
 import { PhraseBoard, Wheel } from '@/components/game/Wheel'
 import { Badge } from '@/components/ui/primitives'
@@ -8,6 +8,66 @@ import type { GameState, Question } from '@/lib/types'
 import { cn, formatPoints } from '@/lib/utils'
 
 const letters = ['A', 'B', 'C', 'D', 'E', 'F']
+
+/** Main-screen view of an estimation round — see `EstimationRuntime`. */
+export function EstimationStage({ state }: { state: GameState }) {
+  const est = state.estimation
+  if (!est) return null
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <Badge tone="gold" className="text-sm">
+          Runda oszacowania
+        </Badge>
+        {est.unit ? <Badge>Jednostka: {est.unit}</Badge> : null}
+      </div>
+      <p className="text-balance text-2xl leading-snug font-semibold sm:text-4xl">{est.prompt}</p>
+      {est.media ? <MediaView media={est.media} /> : null}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {est.eligiblePlayerIds.map((playerId) => {
+          const player = playerById(state, playerId)
+          const guess = est.guesses[playerId]
+          const submitted = guess !== undefined
+          const diff =
+            est.revealed && submitted && est.correctAnswer !== undefined
+              ? Math.abs(guess - est.correctAnswer)
+              : null
+          const isWinner = est.winnerIds?.includes(playerId)
+          return (
+            <div
+              key={playerId}
+              className={cn(
+                'panel flex items-center gap-3 px-3 py-2',
+                isWinner && 'border-gold bg-gold/10',
+              )}
+            >
+              <span className="text-xl">{player?.avatar}</span>
+              <span className="flex-1 truncate">{player?.name}</span>
+              {est.revealed ? (
+                <span className="text-display text-lg">
+                  {submitted ? `${guess}${est.unit ? ` ${est.unit}` : ''}` : 'brak odpowiedzi'}
+                  {diff !== null ? <span className="ml-2 text-xs text-white/50">(±{diff})</span> : null}
+                </span>
+              ) : (
+                <Badge tone={submitted ? 'mint' : 'neutral'}>{submitted ? 'gotowe' : 'czeka…'}</Badge>
+              )}
+              {isWinner ? <Trophy className="size-4 text-gold" /> : null}
+            </div>
+          )
+        })}
+      </div>
+      {est.revealed && est.correctAnswer !== undefined ? (
+        <div className="animate-pop rounded-card border border-mint/60 bg-mint/10 p-4">
+          <div className="text-xs tracking-[0.2em] text-mint uppercase">Poprawna odpowiedź</div>
+          <div className="text-display text-2xl">
+            {est.correctAnswer}
+            {est.unit ? ` ${est.unit}` : ''}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 export function QuestionStage({
   state,
@@ -20,10 +80,12 @@ export function QuestionStage({
   skewMs?: number
 }) {
   const active = state.active
-  useTicker(Boolean(active?.auction?.timerRunning))
+  useTicker(Boolean(active?.auction?.timerRunning) || Boolean(active?.assignment?.timerEndsAt))
   if (!active) return null
 
   const locked = playerById(state, active.lockedPlayerId)
+  const assignment = active.assignment
+  const timerRemaining = secondsLeft(assignment?.timerEndsAt, skewMs)
 
   return (
     <div className="flex flex-col gap-5">
@@ -35,19 +97,19 @@ export function QuestionStage({
           <span className="text-display text-3xl text-gold">{formatPoints(active.value)}</span>
         </div>
         <div className="flex items-center gap-2">
-          {active.buzzersOpen ? (
-            <Badge tone="mint" className="animate-glow">
-              <Hand className="size-3" /> Zgłoszenia otwarte
-            </Badge>
-          ) : active.stage === 'reading' ? (
+          {assignment && active.stage === 'reading' ? (
             <Badge>
-              <Hourglass className="size-3" /> Czytanie pytania
+              <Hourglass className="size-3" /> Czytanie pytania — dla{' '}
+              {playerById(state, assignment.assignedPlayerId)?.name ?? '—'}
             </Badge>
           ) : null}
           {locked ? (
             <Badge tone="violet">
               <Lock className="size-3" /> Odpowiada: {locked.avatar} {locked.name}
             </Badge>
+          ) : null}
+          {timerRemaining !== null ? (
+            <Badge tone={timerRemaining <= 5 ? 'coral' : 'gold'}>{timerRemaining}s</Badge>
           ) : null}
         </div>
       </div>
@@ -117,10 +179,10 @@ export function QuestionStage({
       {active.list ? <ListStage state={state} /> : null}
       {active.auction ? <AuctionStage state={state} skewMs={skewMs} /> : null}
 
-      {active.buzzOrder.length > 0 ? (
+      {assignment && assignment.takeoverQueue.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 text-sm text-white/60">
-          Kolejka zgłoszeń:
-          {active.buzzOrder.map((playerId, index) => {
+          Kolejka przejęcia:
+          {assignment.takeoverQueue.map((playerId, index) => {
             const player = playerById(state, playerId)
             return (
               <Badge key={playerId} tone={index === 0 ? 'gold' : 'neutral'}>
