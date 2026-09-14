@@ -144,6 +144,8 @@ ze zwycięzcą.
 ## Edytor pytań (`#/editor`)
 
 - Kategorie: dodawanie, usuwanie, nazwa, mnożnik ×0.5/×1/×2, przypisanie do Rundy 1/Rundy 2.
+- Zakładka „Oszacowanie”: pula pytań do rundy(rund) oszacowania — dodawanie, usuwanie,
+  treść pytania, poprawna liczba, jednostka, notatka dla prowadzącego, multimedia.
 - Pytania: typ, treść, podpowiedzi ABCD (z oznaczeniem poprawnej) albo pytanie otwarte,
   klucz odpowiedzi, notatka dla prowadzącego, tekst dla lektora.
 - Multimedia w pytaniu, w odpowiedzi i w każdej opcji ABCD: zdjęcie, audio lub wideo —
@@ -151,7 +153,8 @@ ze zwycięzcą.
 - Listy odpowiedzi dla wyliczanki i licytacji (jedna pozycja na linię), liczba żyć,
   długość timera.
 - Pytania finałowe i globalne zasady (wartości wierszy, koszt samogłoski, wypłaty
-  w wyliczance, timery, PIN chroniący admina i edytor).
+  w wyliczance, timery — w tym czas na odpowiedź w zwykłym pytaniu — PIN chroniący admina
+  i edytor).
 - Pakiet zapisuje się automatycznie w przeglądarce (IndexedDB) i można go
   eksportować/importować jako JSON.
 - **Uwaga:** pula pytań do rundy oszacowania (`pack.estimation`) i długość timera na

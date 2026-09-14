@@ -16,7 +16,7 @@ import { Badge, Input, Label, Panel, PanelTitle, Select, Textarea } from '@/comp
 import { DEFAULT_PACK } from '@/lib/defaultPack'
 import { cellValue } from '@/lib/engine'
 import { approximatePackSize, downloadPack, formatBytes, readPackFile } from '@/lib/storage'
-import type { Category, FinalQuestion, Pack, Question, QuestionKind } from '@/lib/types'
+import type { Category, EstimationQuestion, FinalQuestion, Pack, Question, QuestionKind } from '@/lib/types'
 import { cn, formatPoints, randomId } from '@/lib/utils'
 
 const kindNames: Record<QuestionKind, string> = {
@@ -92,7 +92,7 @@ function EditorScreenContent({
 }) {
   const [categoryIndex, setCategoryIndex] = useState(0)
   const [questionIndex, setQuestionIndex] = useState(0)
-  const [tab, setTab] = useState<'board' | 'final' | 'rules'>('board')
+  const [tab, setTab] = useState<'board' | 'estimation' | 'final' | 'rules'>('board')
   const fileInput = useRef<HTMLInputElement>(null)
   const category = pack.categories[categoryIndex]
   const question = category?.questions[questionIndex]
@@ -116,6 +116,11 @@ function EditorScreenContent({
   const patchFinal = (index: number, patch: Partial<FinalQuestion>) =>
     patchPack({
       final: pack.final.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+    })
+
+  const patchEstimation = (index: number, patch: Partial<EstimationQuestion>) =>
+    patchPack({
+      estimation: pack.estimation.map((item, i) => (i === index ? { ...item, ...patch } : item)),
     })
 
   return (
@@ -183,13 +188,19 @@ function EditorScreenContent({
           />
         </div>
         <div className="flex gap-1">
-          {(['board', 'final', 'rules'] as const).map((value) => (
+          {(['board', 'estimation', 'final', 'rules'] as const).map((value) => (
             <Button
               key={value}
               variant={tab === value ? 'primary' : 'secondary'}
               onClick={() => setTab(value)}
             >
-              {value === 'board' ? 'Plansza' : value === 'final' ? 'Finał' : 'Zasady'}
+              {value === 'board'
+                ? 'Plansza'
+                : value === 'estimation'
+                  ? 'Oszacowanie'
+                  : value === 'final'
+                    ? 'Finał'
+                    : 'Zasady'}
             </Button>
           ))}
         </div>
@@ -545,6 +556,98 @@ function EditorScreenContent({
         </div>
       ) : null}
 
+      {tab === 'estimation' ? (
+        <div className="flex flex-col gap-3">
+          <Panel className="text-sm text-white/60">
+            Pula pytań na rundę(y) oszacowania — z niej losowo wybierane jest pytanie na start
+            gry, i (jeśli plansza ma Rundę 2) jeszcze raz, żeby wyznaczyć, kto zaczyna wybierać w
+            Rundzie 2. Przy remisie dogrywka też losuje z tej puli, bez powtórek — im więcej
+            pytań, tym mniejsza szansa na powtórkę w trakcie jednej gry.
+          </Panel>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {pack.estimation.map((item, index) => (
+              <Panel key={item.id} className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <PanelTitle>Pytanie oszacowania {index + 1}</PanelTitle>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      patchPack({ estimation: pack.estimation.filter((_, i) => i !== index) })
+                    }
+                  >
+                    <Trash2 className="size-4 text-coral" />
+                  </Button>
+                </div>
+                <div>
+                  <Label>Pytanie (np. „Ile metrów ma…”)</Label>
+                  <Textarea
+                    rows={2}
+                    value={item.prompt}
+                    onChange={(event) => patchEstimation(index, { prompt: event.target.value })}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <Label>Poprawna liczba</Label>
+                    <Input
+                      inputMode="decimal"
+                      value={item.answer}
+                      onChange={(event) =>
+                        patchEstimation(index, { answer: Number(event.target.value) || 0 })
+                      }
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <Label>Jednostka (opcjonalnie)</Label>
+                    <Input
+                      placeholder="np. km, kg, lat"
+                      value={item.unit ?? ''}
+                      onChange={(event) =>
+                        patchEstimation(index, { unit: event.target.value || undefined })
+                      }
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label>Notatka dla prowadzącego (opcjonalnie)</Label>
+                  <Textarea
+                    rows={2}
+                    value={item.notes ?? ''}
+                    onChange={(event) =>
+                      patchEstimation(index, { notes: event.target.value || undefined })
+                    }
+                  />
+                </div>
+                <MediaEditor
+                  label="Multimedia w pytaniu"
+                  value={item.media}
+                  onChange={(media) => patchEstimation(index, { media })}
+                />
+              </Panel>
+            ))}
+            <Button
+              variant="secondary"
+              className="h-14"
+              onClick={() =>
+                patchPack({
+                  estimation: [
+                    ...pack.estimation,
+                    {
+                      id: randomId('e'),
+                      prompt: 'Nowe pytanie oszacowania',
+                      answer: 0,
+                    },
+                  ],
+                })
+              }
+            >
+              <Plus className="size-4" /> Dodaj pytanie oszacowania
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {tab === 'final' ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {pack.final.map((item, index) => (
@@ -694,6 +797,22 @@ function EditorScreenContent({
                 })
               }
             />
+          </div>
+          <div>
+            <Label>Czas na odpowiedź w zwykłym pytaniu (s)</Label>
+            <Input
+              inputMode="numeric"
+              value={pack.rules.answerTimerSeconds}
+              onChange={(event) =>
+                patchPack({
+                  rules: { ...pack.rules, answerTimerSeconds: Number(event.target.value) || 20 },
+                })
+              }
+            />
+            <p className="mt-1 text-xs text-white/45">
+              Tyle sekund ma wyznaczony gracz (i każdy kolejny, kto przejmie pytanie) po tym, jak
+              admin kliknie „Zacznij timer”.
+            </p>
           </div>
           <div>
             <Label>PIN prowadzącego</Label>
