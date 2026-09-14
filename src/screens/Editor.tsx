@@ -215,6 +215,9 @@ function EditorScreenContent({
                 )}
               >
                 <span className="text-display w-5 text-white/40">{index + 1}</span>
+                <Badge tone={(item.round ?? 1) === 2 ? 'violet' : 'neutral'}>
+                  R{item.round ?? 1}
+                </Badge>
                 <span className="flex-1 truncate">{item.name}</span>
                 {item.fixedValue != null ? (
                   <Badge tone="violet">stałe {item.fixedValue}</Badge>
@@ -233,6 +236,7 @@ function EditorScreenContent({
                       id: randomId('cat'),
                       name: 'Nowa kategoria',
                       multiplier: 1,
+                      round: 1,
                       questions: Array.from({ length: 6 }, emptyQuestion),
                     },
                   ],
@@ -250,6 +254,26 @@ function EditorScreenContent({
                 value={category.name}
                 onChange={(event) => patchCategory(categoryIndex, { name: event.target.value })}
               />
+              <div className="flex items-center gap-2">
+                <Label className="mb-0 flex-1">Plansza (runda)</Label>
+                <div className="flex overflow-hidden rounded-lg border border-stage-600">
+                  {([1, 2] as const).map((round) => (
+                    <button
+                      key={round}
+                      type="button"
+                      onClick={() => patchCategory(categoryIndex, { round })}
+                      className={cn(
+                        'px-3 py-1.5 text-sm font-semibold transition',
+                        (category.round ?? 1) === round
+                          ? 'bg-gold text-stage-900'
+                          : 'bg-transparent text-white/60 hover:bg-white/5',
+                      )}
+                    >
+                      Runda {round}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <Label className="mb-0 flex-1">Mnożnik punktów</Label>
                 <Select

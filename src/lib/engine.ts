@@ -54,6 +54,7 @@ export function buildBoard(pack: Pack): BoardCategory[] {
     name: category.name,
     multiplier: category.multiplier,
     fixedValue: category.fixedValue,
+    round: category.round ?? 1,
     cells: category.questions.map((question, row) => ({
       questionId: question.id,
       value: cellValue(pack, category, row),
@@ -61,6 +62,11 @@ export function buildBoard(pack: Pack): BoardCategory[] {
       used: false,
     })),
   }))
+}
+
+/** Whether the pack has any category assigned to Runda 2 — otherwise the game stays single-round. */
+export function hasRound2(pack: Pack) {
+  return pack.categories.some((c) => (c.round ?? 1) === 2)
 }
 
 export function createInitialState(pack: Pack, code: string): GameState {
@@ -72,8 +78,10 @@ export function createInitialState(pack: Pack, code: string): GameState {
     turnOrder: [],
     currentPlayerId: null,
     board: buildBoard(pack),
+    round: 1,
     active: null,
     estimation: null,
+    estimationUsedIds: [],
     takeoversUsed: 0,
     final: null,
     log: [],
@@ -94,23 +102,22 @@ function pickEstimationQuestion(pack: Pack, usedQuestionIds: string[]) {
 }
 
 /**
- * Kicks off an estimation round for `eligiblePlayerIds` (everyone at game start, or just the
- * tied leaders of the previous round on a tie-break). Falls back straight to the board — first
- * player in turn order designates — if the pack has no estimation questions configured.
+ * Kicks off an estimation round for `eligiblePlayerIds` (everyone at the start of a board — game
+ * start, or Runda 2's opening pick — or just the tied leaders of the previous round on a
+ * tie-break). Draws from `state.estimationUsedIds` so a question already used earlier this game
+ * (in either round) never repeats, and records the draw back into it. Falls back straight to the
+ * board — first player in turn order designates — if the pack has no estimation questions
+ * configured.
  */
-function startEstimationRound(
-  pack: Pack,
-  state: GameState,
-  eligiblePlayerIds: string[],
-  usedQuestionIds: string[],
-) {
-  const question = pickEstimationQuestion(pack, usedQuestionIds)
+function startEstimationRound(pack: Pack, state: GameState, eligiblePlayerIds: string[]) {
+  const question = pickEstimationQuestion(pack, state.estimationUsedIds)
   if (!question) {
     state.phase = 'board'
     state.estimation = null
     state.currentPlayerId = eligiblePlayerIds[0] ?? state.turnOrder[0] ?? null
     return
   }
+  state.estimationUsedIds = [...state.estimationUsedIds, question.id]
   state.phase = 'estimation'
   state.estimation = {
     questionId: question.id,
@@ -120,7 +127,7 @@ function startEstimationRound(
     eligiblePlayerIds,
     guesses: {},
     revealed: false,
-    usedQuestionIds: [...usedQuestionIds, question.id],
+    usedQuestionIds: state.estimationUsedIds,
   }
 }
 
@@ -187,8 +194,11 @@ export function activeQuestionSource(pack: Pack, state: GameState): Question | n
   return found?.question ?? null
 }
 
+/** Unused cells on the *currently active* round's board (Runda 1 or Runda 2 — see `state.round`). */
 export function boardRemaining(state: GameState) {
-  return state.board.reduce((sum, cat) => sum + cat.cells.filter((c) => !c.used).length, 0)
+  return state.board
+    .filter((cat) => cat.round === state.round)
+    .reduce((sum, cat) => sum + cat.cells.filter((c) => !c.used).length, 0)
 }
 
 export function playerById(state: GameState, id: string | null | undefined) {
@@ -537,8 +547,10 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
         state.turnOrder = state.players.map((p) => p.id)
         state.currentPlayerId = null
         state.board = buildBoard(pack)
+        state.round = 1
         state.takeoversUsed = 0
-        startEstimationRound(pack, state, [...state.turnOrder], [])
+        state.estimationUsedIds = []
+        startEstimationRound(pack, state, [...state.turnOrder])
         log(state, 'Gra rozpoczęta!', 'good')
         break
       }
@@ -570,7 +582,7 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
         if (!est || !est.revealed) break
         const winners = est.winnerIds ?? []
         if (winners.length > 1) {
-          startEstimationRound(pack, state, winners, est.usedQuestionIds)
+          startEstimationRound(pack, state, winners)
           log(state, 'Remis w oszacowaniu — dogrywka!', 'info')
         } else {
           const winnerId = winners[0] ?? eligibleTurnOrder(state)[0] ?? null
@@ -579,9 +591,22 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
           state.currentPlayerId = winnerId
           const winner = playerById(state, winnerId)
           if (winner) {
-            log(state, `${winner.avatar} ${winner.name} wygrywa oszacowanie i wybiera pierwszą kategorię`, 'good')
+            const suffix = state.round === 2 ? ' i wybiera pierwszą kategorię Rundy 2' : ' i wybiera pierwszą kategorię'
+            log(state, `${winner.avatar} ${winner.name} wygrywa oszacowanie${suffix}`, 'good')
           }
         }
+        break
+      }
+      case 'startRound2': {
+        // Board 1 has to actually be exhausted, and the pack has to have Runda 2 categories at
+        // all — otherwise there's nothing to switch to (see `hasRound2`, checked by the UI too).
+        if (state.round !== 1) break
+        if (boardRemaining(state) > 0) break
+        if (!hasRound2(pack)) break
+        state.round = 2
+        state.active = null
+        startEstimationRound(pack, state, [...eligibleTurnOrder(state)])
+        log(state, 'Runda 2! Nowa runda oszacowania decyduje, kto zaczyna wybierać.', 'good')
         break
       }
       case 'openQuestion': {

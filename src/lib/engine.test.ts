@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PACK, WHEEL_SEGMENTS } from './defaultPack'
-import { applyAction, createInitialState, joinPlayer, setConnected } from './engine'
+import { applyAction, createInitialState, hasRound2, joinPlayer, setConnected } from './engine'
 import type { AdminAction, GameState, Pack, PlayerAction } from './types'
 
 const pack: Pack = structuredClone(DEFAULT_PACK)
@@ -506,5 +506,131 @@ describe('reset', () => {
     expect(state.phase).toBe('lobby')
     expect(state.players).toHaveLength(3)
     expect(state.players.every((player) => player.score === 0)).toBe(true)
+  })
+})
+
+describe('runda 2 (dwie plansze)', () => {
+  // Osobny pakiet, żeby nie mieszać `round` do współdzielonego `pack` z testów powyżej. Rundzie 1
+  // zostają tylko kategorie "zwykłe" (standard) — Koło fortuny / Wyliż chunka / Licytacje idą do
+  // Rundy 2 — tak, żeby móc wyczerpać Rundę 1 samym generycznym `judge: true`.
+  const ROUND2_NAMES = ['Koło fortuny', 'Wyliż chunka', 'Licytacje']
+  const round2Pack: Pack = structuredClone(DEFAULT_PACK)
+  round2Pack.categories = round2Pack.categories.map((category) => ({
+    ...category,
+    round: ROUND2_NAMES.includes(category.name) ? 2 : 1,
+  }))
+
+  function admin2(state: GameState, action: AdminAction) {
+    return applyAction(round2Pack, state, { source: 'admin', action })
+  }
+  function asPlayer2(state: GameState, playerId: string, action: PlayerAction) {
+    return applyAction(round2Pack, state, { source: 'player', playerId, action })
+  }
+
+  function lobby2(names: string[]) {
+    let state = createInitialState(round2Pack, 'TEST2')
+    const ids: string[] = []
+    names.forEach((name) => {
+      const result = joinPlayer(state, { name, avatar: '🦊' })
+      state = result.state
+      ids.push(result.playerId)
+    })
+    return { state, ids }
+  }
+
+  function resolveEstimation(state: GameState, ids: string[]) {
+    let next = state
+    if (next.phase === 'estimation' && next.estimation) {
+      const correct =
+        round2Pack.estimation.find((q) => q.id === next.estimation?.questionId)?.answer ?? 0
+      ids.forEach((id, index) => {
+        next = asPlayer2(next, id, { type: 'estimateGuess', amount: correct + index })
+      })
+      next = admin2(next, { type: 'estimateReveal' })
+      next = admin2(next, { type: 'estimateAdvance' })
+    }
+    return next
+  }
+
+  it('buduje planszę ze wszystkich kategorii, ale pokazuje tylko Rundę 1 na start', () => {
+    const { state: lobby, ids } = lobby2(['Ala', 'Bolek'])
+    let state = admin2(lobby, { type: 'startGame' })
+    state = resolveEstimation(state, ids)
+    expect(state.round).toBe(1)
+    expect(state.board).toHaveLength(round2Pack.categories.length)
+    const round1Categories = state.board.filter((c) => c.round === 1)
+    const round2Categories = state.board.filter((c) => c.round === 2)
+    expect(round1Categories).toHaveLength(5)
+    expect(round2Categories).toHaveLength(3)
+  })
+
+  it('startRound2 jest ignorowany, dopóki plansza Rundy 1 nie jest pusta', () => {
+    const { state: lobby, ids } = lobby2(['Ala', 'Bolek'])
+    let state = admin2(lobby, { type: 'startGame' })
+    state = resolveEstimation(state, ids)
+    expect(state.phase).toBe('board')
+    state = admin2(state, { type: 'startRound2' })
+    expect(state.round).toBe(1)
+    expect(state.phase).toBe('board')
+    expect(state.estimation).toBeNull()
+  })
+
+  it('po wyczerpaniu Rundy 1 startRound2 przełącza planszę i otwiera nową rundę oszacowania', () => {
+    const { state: lobby, ids } = lobby2(['Ala', 'Bolek'])
+    let state = admin2(lobby, { type: 'startGame' })
+    state = resolveEstimation(state, ids)
+
+    // Grind through every question in Runda 1's categories, always judging correct so the board
+    // just empties out without touching Runda 2.
+    const round1Cats = round2Pack.categories.filter((c) => (c.round ?? 1) === 1)
+    for (const category of round1Cats) {
+      for (let row = 0; row < category.questions.length; row += 1) {
+        state = admin2(state, {
+          type: 'openQuestion',
+          categoryId: category.id,
+          questionId: category.questions[row].id,
+        })
+        state = admin2(state, { type: 'startAnswerTimer' })
+        const holderId = state.active!.lockedPlayerId!
+        state = admin2(state, { type: 'judge', playerId: holderId, correct: true })
+        state = admin2(state, { type: 'closeQuestion' })
+      }
+    }
+
+    expect(state.phase).toBe('board')
+    expect(state.round).toBe(1)
+    expect(state.board.filter((c) => c.round === 1).every((c) => c.cells.every((cell) => cell.used))).toBe(
+      true,
+    )
+    // Runda 2's board is still untouched.
+    expect(state.board.filter((c) => c.round === 2).every((c) => c.cells.every((cell) => !cell.used))).toBe(
+      true,
+    )
+
+    state = admin2(state, { type: 'startRound2' })
+    expect(state.round).toBe(2)
+    expect(state.phase).toBe('estimation')
+    expect(state.estimation?.eligiblePlayerIds.sort()).toEqual([...ids].sort())
+
+    state = resolveEstimation(state, ids)
+    expect(state.phase).toBe('board')
+    expect(ids).toContain(state.currentPlayerId)
+
+    // Only Runda 2's categories are pickable now.
+    const round2Cat = round2Pack.categories.find((c) => (c.round ?? 1) === 2)!
+    state = admin2(state, {
+      type: 'openQuestion',
+      categoryId: round2Cat.id,
+      questionId: round2Cat.questions[0].id,
+    })
+    expect(state.active?.categoryId).toBe(round2Cat.id)
+  })
+
+  it('gra bez kategorii Rundy 2 (pakiet startowy) nigdy nie zmienia rundy', () => {
+    expect(hasRound2(pack)).toBe(false)
+    const { state } = startedGame()
+    expect(state.round).toBe(1)
+    const afterNoop = admin(state, { type: 'startRound2' })
+    expect(afterNoop.round).toBe(1)
   })
 })

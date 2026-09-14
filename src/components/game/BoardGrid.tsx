@@ -27,13 +27,14 @@ export function BoardGrid({
   disabled?: boolean
   compact?: boolean
 }) {
+  const visible = state.board.filter((category) => category.round === state.round)
   return (
     <div className="w-full overflow-x-auto pb-2">
       <div
         className="grid min-w-[52rem] gap-2"
-        style={{ gridTemplateColumns: `repeat(${state.board.length}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${visible.length}, minmax(0, 1fr))` }}
       >
-        {state.board.map((category) => (
+        {visible.map((category) => (
           <div key={category.id} className="flex flex-col gap-2">
             <div className="panel flex min-h-[3.75rem] flex-col justify-center px-2 py-2 text-center">
               <div className="text-display text-[0.78rem] leading-tight text-gold">

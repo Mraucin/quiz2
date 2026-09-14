@@ -82,6 +82,8 @@ export interface Category {
   multiplier: 0.5 | 1 | 2
   /** Gdy ustawione, każde pytanie w kategorii jest warte tyle samo (np. Wyliż chunka, Licytacje) — pomija rowValues×multiplier. */
   fixedValue?: number
+  /** Która plansza pokazuje tę kategorię — Runda 1 czy Runda 2. Brak = Runda 1 (stare pakiety). */
+  round?: 1 | 2
   questions: Question[]
 }
 
@@ -157,6 +159,8 @@ export interface BoardCategory {
   name: string
   multiplier: 0.5 | 1 | 2
   fixedValue?: number
+  /** Runda planszy, do której należy ta kategoria (patrz `Category.round`). */
+  round: 1 | 2
   cells: BoardCell[]
 }
 
@@ -327,9 +331,13 @@ export interface GameState {
   turnOrder: string[]
   currentPlayerId: string | null
   board: BoardCategory[]
+  /** Which board is currently in play — Runda 1 or Runda 2 (see `startRound2`). */
+  round: 1 | 2
   active: ActiveQuestion | null
   /** Non-null while an estimation round is in progress (see `Phase = 'estimation'`). */
   estimation: EstimationRuntime | null
+  /** Estimation question ids already used this game (both rounds), so Runda 2's opening estimation never repeats Runda 1's. */
+  estimationUsedIds: string[]
   /** How many times a question has been taken over so far this game — capped at 4 (see `requestTakeover`). */
   takeoversUsed: number
   final: FinalRuntime | null
@@ -367,6 +375,8 @@ export type AdminAction =
   | { type: 'setCurrentPlayer'; playerId: string }
   | { type: 'estimateReveal' }
   | { type: 'estimateAdvance' }
+  /** Board 1 (Runda 1) is fully used up — switch to board 2 and open a fresh estimation round to pick who designates first. */
+  | { type: 'startRound2' }
   | { type: 'openQuestion'; categoryId: string; questionId: string; assignedPlayerId?: string }
   | { type: 'startAnswerTimer'; seconds?: number }
   | { type: 'judge'; playerId: string; correct: boolean }

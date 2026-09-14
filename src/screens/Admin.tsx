@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Badge, Input, Panel, PanelTitle } from '@/components/ui/primitives'
 import { useHostGame } from '@/hooks/useHostGame'
 import { AVATARS } from '@/lib/defaultPack'
-import { boardRemaining, findQuestion, playerById } from '@/lib/engine'
+import { boardRemaining, findQuestion, hasRound2, playerById } from '@/lib/engine'
 import type { Pack } from '@/lib/types'
 import { cn, formatPoints } from '@/lib/utils'
 
@@ -58,6 +58,10 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
 
   const remaining = boardRemaining(state)
   const currentPlayer = playerById(state, state.currentPlayerId)
+  const twoRounds = hasRound2(pack)
+  // Board 1 is done but there's a Runda 2 to switch to first — the "Runda finałowa" button is
+  // replaced by "Zaczynamy rundę 2" until that switch happens (see `startRound2`).
+  const awaitingRound2 = twoRounds && state.round === 1 && remaining === 0
 
   const header = (
     <header className="flex flex-wrap items-center gap-3">
@@ -78,6 +82,7 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
               : 'Łączę z brokerem…'}
         </Badge>
         <Badge tone="gold">Kod: {code}</Badge>
+        {twoRounds && state.phase !== 'lobby' ? <Badge tone="violet">Runda {state.round}</Badge> : null}
         <Button variant="ghost" size="sm" onClick={() => navigate('/editor')}>
           <Pencil className="size-4" /> Edytor
         </Button>
@@ -292,12 +297,18 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
       <Panel>
         <PanelTitle>Sterowanie grą</PanelTitle>
         <div className="mt-2 flex flex-wrap gap-2">
-          <Button
-            variant={remaining === 0 ? 'primary' : 'outline'}
-            onClick={() => dispatch({ type: 'startFinal' })}
-          >
-            <Flag className="size-4" /> Runda finałowa
-          </Button>
+          {awaitingRound2 ? (
+            <Button variant="primary" onClick={() => dispatch({ type: 'startRound2' })}>
+              <Flag className="size-4" /> Zaczynamy rundę 2
+            </Button>
+          ) : (
+            <Button
+              variant={remaining === 0 ? 'primary' : 'outline'}
+              onClick={() => dispatch({ type: 'startFinal' })}
+            >
+              <Flag className="size-4" /> Runda finałowa
+            </Button>
+          )}
           {state.phase !== 'board' ? (
             <Button variant="ghost" onClick={() => dispatch({ type: 'backToBoard' })}>
               Wróć do planszy
@@ -317,7 +328,9 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
             <RotateCcw className="size-4" /> Reset
           </Button>
         </div>
-        <p className="mt-2 text-xs text-white/45">Pozostało pytań na planszy: {remaining}</p>
+        <p className="mt-2 text-xs text-white/45">
+          Pozostało pytań na planszy{twoRounds ? ` (Runda ${state.round})` : ''}: {remaining}
+        </p>
       </Panel>
 
       <Panel className="max-h-64 overflow-y-auto">
@@ -367,11 +380,26 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
               <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between gap-3">
                   <PanelTitle className="text-base">
-                    Plansza — wybiera {currentPlayer ? currentPlayer.name : 'prowadzący'}
+                    Plansza{twoRounds ? ` — Runda ${state.round}` : ''} — wybiera{' '}
+                    {currentPlayer ? currentPlayer.name : 'prowadzący'}
                   </PanelTitle>
                   <Badge>{remaining} pytań zostało</Badge>
                 </div>
-                {remaining === 0 ? (
+                {remaining === 0 && awaitingRound2 ? (
+                  <div className="animate-pop flex flex-wrap items-center gap-4 rounded-card border border-gold/60 bg-gold/10 p-4">
+                    <Flag className="size-6 text-gold" />
+                    <div className="flex-1">
+                      <div className="text-display text-xl text-gold">Plansza Rundy 1 wyczerpana</div>
+                      <p className="text-sm text-white/65">
+                        Czas na Rundę 2 — nowa runda oszacowania wskaże, kto zaczyna wybierać.
+                      </p>
+                    </div>
+                    <Button variant="primary" size="lg" onClick={() => dispatch({ type: 'startRound2' })}>
+                      Zaczynamy rundę 2
+                    </Button>
+                  </div>
+                ) : null}
+                {remaining === 0 && !awaitingRound2 ? (
                   <div className="animate-pop flex flex-wrap items-center gap-4 rounded-card border border-gold/60 bg-gold/10 p-4">
                     <Flag className="size-6 text-gold" />
                     <div className="flex-1">

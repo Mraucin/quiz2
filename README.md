@@ -78,6 +78,23 @@ mnożnika — odpowiednio 600 i 300.
 
 Błędna odpowiedź: **−wartość pytania**. Bez żadnej pauzy — gracz od razu wraca do gry.
 
+#### Dwie rundy (jak w prawdziwym Jeopardy)
+
+W edytorze każdą kategorię można przypisać do **Rundy 1** albo **Rundy 2** (zakładka
+„Plansza” → wybrana kategoria → przełącznik „Plansza (runda)”). Gra pokazuje na raz tylko
+planszę bieżącej rundy — gracze nie widzą kategorii Rundy 2, dopóki runda 1 się nie skończy.
+Wartości punktowe Rundy 2 nie są automatycznie podwajane — jeśli chcesz, żeby Runda 2 była
+warta więcej, ustaw to sama/sam przez mnożnik kategorii (×2) albo stałą wartość, tak jak dla
+każdej innej kategorii.
+
+Gdy plansza Rundy 1 zostanie wyczerpana, panel prowadzącego pokazuje przycisk „Zaczynamy
+rundę 2” zamiast „Runda finałowa”. Kliknięcie uruchamia **nową rundę oszacowania** (dokładnie
+taką jak na starcie gry) — kto zgadnie najbliżej, ten wybiera pierwszą kategorię Rundy 2.
+Dopiero po wyczerpaniu planszy Rundy 2 pojawia się przycisk startujący rundę finałową.
+
+Jeśli żadna kategoria nie zostanie przypisana do Rundy 2, gra działa jak dotychczas —
+jedna plansza, bez dodatkowej rundy oszacowania w środku.
+
 ### Runda oszacowania (kto zaczyna)
 
 Zanim otworzy się plansza, gracze przechodzą przez rundę oszacowania: pojawia się pytanie
@@ -126,7 +143,7 @@ ze zwycięzcą.
 
 ## Edytor pytań (`#/editor`)
 
-- Kategorie: dodawanie, usuwanie, nazwa, mnożnik ×1/×2.
+- Kategorie: dodawanie, usuwanie, nazwa, mnożnik ×0.5/×1/×2, przypisanie do Rundy 1/Rundy 2.
 - Pytania: typ, treść, podpowiedzi ABCD (z oznaczeniem poprawnej) albo pytanie otwarte,
   klucz odpowiedzi, notatka dla prowadzącego, tekst dla lektora.
 - Multimedia w pytaniu, w odpowiedzi i w każdej opcji ABCD: zdjęcie, audio lub wideo —
