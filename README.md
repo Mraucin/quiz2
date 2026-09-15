@@ -113,9 +113,11 @@ rundę oszacowania z nowym pytaniem, tylko dla remisujących. Pula pytań do osz
 
 Zamiast zgłoszeń „kto pierwszy klika”, zwycięzca ostatniej rundy (oszacowania albo
 poprzedniego zwykłego pytania) **wyznacza**: wybiera kategorię (admin klika jak zawsze) i
-gracza, który ma odpowiadać — może wskazać siebie albo kogoś innego. Admin czyta pytanie
-tylko temu graczowi (na telefonach reszty treść jest ukryta, dopóki nie ruszy timer), a
-potem klika „Zacznij timer” (domyślnie 20 sekund, `pack.rules.answerTimerSeconds`).
+gracza, który ma odpowiadać — może wskazać siebie albo kogoś innego. Treść pytania (i jego
+multimedia) widzą od razu wszyscy gracze na telefonach — ukryte jest tylko to, kto ile ma
+punktów, kto już próbował i inne szczegóły rozgrywki. Admin klika „Zacznij timer” (domyślnie
+20 sekund, `pack.rules.answerTimerSeconds`), dopiero wtedy wyznaczony gracz może wpisać
+odpowiedź.
 
 - Wyznaczony gracz odpowiada w czasie timera. Poprawna odpowiedź: **+wartość pytania**,
   i to on wyznacza kolejne pytanie.

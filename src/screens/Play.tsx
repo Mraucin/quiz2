@@ -206,15 +206,6 @@ function PlayerBody({
   }
 
   const active = state.active
-  const assignment = active.assignment
-  // Privacy twist: while the admin is reading a standard question, only the assignee's phone
-  // shows it — everyone else just sees who's up and waits to find out if they answer. Once the
-  // timer starts, the question is fair game for a takeover, so everyone can see it.
-  const hidePrompt =
-    active.kind === 'standard' &&
-    active.stage === 'reading' &&
-    Boolean(assignment) &&
-    assignment?.assignedPlayerId !== me.id
 
   return (
     <div className="flex flex-col gap-3">
@@ -223,21 +214,14 @@ function PlayerBody({
           <Badge tone="gold">{active.categoryName}</Badge>
           <span className="text-display text-xl text-gold">{formatPoints(active.value)}</span>
         </div>
-        {hidePrompt ? (
-          <p className="mt-3 text-sm text-white/50">
-            Prowadzący czyta teraz pytanie tylko dla{' '}
-            {playerById(state, assignment?.assignedPlayerId)?.name ?? 'wyznaczonego gracza'}.
-          </p>
-        ) : (
-          <>
-            <p className="mt-3 text-lg leading-snug font-semibold">{active.prompt}</p>
-            {active.media?.src ? (
-              <MediaView media={active.media} className="mt-3" hideLabel />
-            ) : active.media ? (
-              <p className="mt-2 text-sm text-white/50">Materiał odtwarza prowadzący na dużym ekranie.</p>
-            ) : null}
-          </>
-        )}
+        {/* Treść pytania widoczna dla wszystkich graczy od razu — nawet zanim admin
+            ruszy timer i zanim ktokolwiek zacznie odpowiadać. */}
+        <p className="mt-3 text-lg leading-snug font-semibold">{active.prompt}</p>
+        {active.media?.src ? (
+          <MediaView media={active.media} className="mt-3" hideLabel />
+        ) : active.media ? (
+          <p className="mt-2 text-sm text-white/50">Materiał odtwarza prowadzący na dużym ekranie.</p>
+        ) : null}
         {active.answerRevealed ? (
           <div className="mt-3 rounded-xl border border-mint/60 bg-mint/10 p-3">
             <div className="text-xs text-mint uppercase">Poprawna odpowiedź</div>
@@ -281,7 +265,9 @@ function StandardPlayerControls({
   const alreadyAttempted = assignment.attempted.includes(me.id)
   const inQueue = assignment.takeoverQueue.includes(me.id)
   const takeoverCapReached = state.takeoversUsed >= 4
-  const takeoverEligible = Boolean(active.choices && active.choices.length > 2)
+  // Respektuje ręczny znacznik z edytora (`allowTakeover`), nie tylko starą regułę >2
+  // odpowiedzi — liczone raz po stronie silnika w `makeActive()`, patrz `StandardAssignment.canTakeover`.
+  const takeoverEligible = assignment.canTakeover
   const canRequestTakeover =
     active.stage === 'locked' &&
     !isHolder &&
