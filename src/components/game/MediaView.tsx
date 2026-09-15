@@ -1,11 +1,31 @@
+import { createContext, useContext, type ReactNode } from 'react'
 import { Volume2 } from 'lucide-react'
 import type { MediaKind } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 /** Accepts both the editor's `Media` (host, always has a src) and the player-safe
- * `PublicMedia` (src may be missing for host-only uploads) — same rendering either way. */
-type ViewableMedia = { kind: MediaKind; src?: string; label?: string }
+ * `PublicMedia` (src may be missing for a host-only-sized upload — `mediaId` is then the
+ * fallback, resolved against the preloaded bundle via `MediaCacheContext`). */
+type ViewableMedia = { kind: MediaKind; src?: string; label?: string; mediaId?: string }
+
+/**
+ * id -> data: URL for every local media file the player has preloaded on join (see
+ * `mediaBundle` in `useHostGame.ts` / `usePlayerGame.ts`). `Play.tsx` provides this once near
+ * its root via `MediaCacheProvider`; host-side screens never provide one, which is fine — they
+ * always have `media.src` directly from the pack and never need the fallback.
+ */
+const MediaCacheContext = createContext<Map<string, string> | null>(null)
+
+export function MediaCacheProvider({
+  value,
+  children,
+}: {
+  value: Map<string, string>
+  children: ReactNode
+}) {
+  return <MediaCacheContext.Provider value={value}>{children}</MediaCacheContext.Provider>
+}
 
 /**
  * Shows the question's media inline (image, audio player, or video player) and, for audio
@@ -25,12 +45,17 @@ export function MediaView({
    * (`QuestionStage.tsx`, `FinalStage.tsx`) leave it unset and keep showing the label. */
   hideLabel?: boolean
 }) {
-  if (!media?.src) return null
+  const cache = useContext(MediaCacheContext)
+  // `src` wins when the host inlined it directly; otherwise fall back to the copy this player
+  // preloaded on join (see `MediaCacheProvider` above) — resolved by `mediaId`, so a big local
+  // upload still plays instantly instead of needing a transfer right at reveal time.
+  const src = media?.src ?? (media?.mediaId ? cache?.get(media.mediaId) : undefined)
+  if (!media || !src) return null
   const label = hideLabel ? undefined : media.label
   if (media.kind === 'image') {
     return (
       <figure className={cn('overflow-hidden rounded-card border border-stage-600', className)}>
-        <img src={media.src} alt={label ?? 'Materiał do pytania'} className="max-h-[46vh] w-full object-contain bg-black/40" />
+        <img src={src} alt={label ?? 'Materiał do pytania'} className="max-h-[46vh] w-full object-contain bg-black/40" />
         {label ? (
           <figcaption className="bg-black/40 px-3 py-1.5 text-xs text-white/60">{label}</figcaption>
         ) : null}
@@ -44,11 +69,11 @@ export function MediaView({
           <Volume2 className="size-4 text-gold" />
           {label ?? 'Nagranie audio'}
         </div>
-        <audio src={media.src} controls autoPlay className="w-full" />
+        <audio src={src} controls autoPlay className="w-full" />
       </div>
     )
   }
-  const embed = youtubeEmbedUrl(media.src)
+  const embed = youtubeEmbedUrl(src)
   return (
     <div className={cn('overflow-hidden rounded-card border border-stage-600 bg-black/40', className)}>
       {embed ? (
@@ -60,7 +85,7 @@ export function MediaView({
           allowFullScreen
         />
       ) : (
-        <video src={media.src} controls autoPlay className="max-h-[46vh] w-full" />
+        <video src={src} controls autoPlay className="max-h-[46vh] w-full" />
       )}
       {label ? <div className="px-3 py-1.5 text-xs text-white/60">{label}</div> : null}
     </div>

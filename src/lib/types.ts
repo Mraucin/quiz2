@@ -118,6 +118,10 @@ export interface PackRules {
   finalAnswerSeconds: number
   /** How long an assigned player has to answer a standard question once the admin starts the timer. */
   answerTimerSeconds: number
+  /** Ile razy można przejąć pytanie w obrębie JEDNEJ planszy (Rundy) — licznik (`GameState.takeoversUsed`)
+   * zeruje się przy starcie gry i przy każdej zmianie planszy (`startRound2`/`setRound`), więc to jest
+   * limit "na Rundę 1" i osobno "na Rundę 2", nie na całą grę łącznie. */
+  maxTakeoversPerBoard: number
   /** PIN wymagany, żeby wejść na /admin i /editor — chroni klucze odpowiedzi przed graczami. */
   hostPin: string
 }
@@ -175,8 +179,25 @@ export interface BoardCategory {
 
 export interface PublicMedia {
   kind: MediaKind
-  /** Only present for http(s) media; uploads stay on the host screen. */
+  /**
+   * Present for http(s) media (players load it themselves) and for a local upload small
+   * enough to inline directly. When absent, `mediaId` is the fallback — the player looks the
+   * bytes up in the media bundle it preloaded on join (see `MediaBundleItem` / `buildMediaBundle`).
+   */
   src?: string
+  label?: string
+  /** Stable id for a local (`data:`) upload — same content always hashes to the same id, see
+   * `mediaHashId` in `lib/utils.ts`. Absent for http(s) media, which doesn't need bundling. */
+  mediaId?: string
+}
+
+/** One entry of the one-time "media bundle" a host sends a player right after they join —
+ * every local upload in the whole pack, preloaded up front so nothing has to stream in later
+ * (e.g. right when an answer is revealed). See `buildMediaBundle` in `engine.ts`. */
+export interface MediaBundleItem {
+  id: string
+  kind: MediaKind
+  src: string
   label?: string
 }
 
@@ -320,6 +341,8 @@ export interface FinalRuntime
   answerMedia?: PublicMedia
   wagers: Record<string, number>
   locked: Record<string, boolean>
+  /** Zserializowany szkic gracza z `DrawingPad.tsx` (JSON tablicy kresek punktów), nie wpisany
+   * tekst — renderowany z powrotem przez `<DrawingPad value={...} />` w trybie podglądu. */
   answers: Record<string, string>
   submitted: Record<string, boolean>
   revealed: string[]
@@ -351,7 +374,9 @@ export interface GameState {
   estimation: EstimationRuntime | null
   /** Estimation question ids already used this game (both rounds), so Runda 2's opening estimation never repeats Runda 1's. */
   estimationUsedIds: string[]
-  /** How many times a question has been taken over so far this game — capped at 4 (see `requestTakeover`). */
+  /** How many times a question has been taken over on the CURRENT board — capped at
+   * `rules.maxTakeoversPerBoard` (see `requestTakeover`); resets to 0 at `startGame` and at every
+   * board switch (`startRound2`/`setRound`), so it's a per-Runda counter, not a whole-game one. */
   takeoversUsed: number
   final: FinalRuntime | null
   log: LogEntry[]
@@ -378,6 +403,8 @@ export type PlayerAction =
   | { type: 'wheelSolve'; text: string }
   | { type: 'auctionBid' }
   | { type: 'finalWager'; amount: number }
+  /** `text` to zserializowany szkic z `DrawingPad.tsx` (JSON tablicy kresek), NIE wpisany
+   * tekst — finałowa odpowiedź to teraz odręczny "rysowany panel" zamiast pola tekstowego. */
   | { type: 'finalAnswer'; text: string }
 
 export type AdminAction =
@@ -439,6 +466,10 @@ export type HostMessage =
   | { type: 'welcome'; playerId: string; state: GameState }
   | { type: 'rejected'; reason: string }
   | { type: 'toast'; text: string }
+  /** Sent once right after `welcome` (and again on every rejoin, harmless — the player just
+   * merges it into what it already has) — every local media file in the whole pack, so
+   * playback never has to wait on a transfer at reveal time. See `MediaBundleItem`. */
+  | { type: 'mediaBundle'; items: MediaBundleItem[] }
 
 export type ClientMessage =
   | { type: 'join'; name: string; avatar: string; resumeId?: string }

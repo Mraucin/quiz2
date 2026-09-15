@@ -19,6 +19,7 @@ export const DEFAULT_RULES: PackRules = {
   auctionSeconds: 60,
   finalAnswerSeconds: 45,
   answerTimerSeconds: 20,
+  maxTakeoversPerBoard: 4,
   hostPin: '1234',
 }
 

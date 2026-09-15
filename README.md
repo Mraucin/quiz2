@@ -130,12 +130,16 @@ odpowiedź.
 - Jeśli wyznaczony gracz jednak odpowie poprawnie, mimo że ktoś już zgłosił przejęcie, ten
   ktoś traci punkty równe wartości pytania — kara za przedwczesne kliknięcie.
 - Domyślnie przejęcie działa tylko w pytaniach z **więcej niż dwiema** odpowiedziami do
-  wyboru (czyli praktycznie ABCD) i tylko **4 razy na całą grę** — licznik widać w panelu
-  admina. W edytorze przy każdym pytaniu można to nadpisać ręcznie („Przejmowanie pytania”:
-  Domyślnie / Zawsze można przejąć / Nigdy nie można przejąć) — przydatne np. gdy pytanie
-  otwarte ma być mimo wszystko sporne, albo gdy ABCD ma zostać tylko dla wyznaczonego gracza.
-  Lista pytań w edytorze pokazuje przy każdym znaczek (✓ / 🚫), jak dane pytanie się
-  aktualnie rozstrzyga.
+  wyboru (czyli praktycznie ABCD) i tylko ograniczoną liczbę razy **na planszę** (Rundę) —
+  domyślnie 4, konfigurowalne w edytorze (Zasady → „Limit przejęć na planszę”,
+  `pack.rules.maxTakeoversPerBoard`; 0 wyłącza przejmowanie całkowicie). Licznik widać w
+  panelu admina i zeruje się na starcie gry oraz przy każdej zmianie planszy (przejście do
+  Rundy 2, ręczne przełączenie) — czyli Runda 1 i Runda 2 mają swój własny limit, nie
+  wspólny. W edytorze przy każdym pytaniu można dodatkowo nadpisać, czy przejęcie w ogóle
+  jest dozwolone („Przejmowanie pytania”: Domyślnie / Zawsze można przejąć / Nigdy nie można
+  przejąć) — przydatne np. gdy pytanie otwarte ma być mimo wszystko sporne, albo gdy ABCD ma
+  zostać tylko dla wyznaczonego gracza. Lista pytań w edytorze pokazuje przy każdym znaczek
+  (✓ / 🚫), jak dane pytanie się aktualnie rozstrzyga.
 
 | Typ | Jak działa |
 | --- | --- |
@@ -149,9 +153,14 @@ odpowiedź.
 
 Po wyczerpaniu planszy startuje runda finałowa: 3 pytania otwarte. Dla każdego
 pytania gracze najpierw słyszą kategorię i obstawiają punkty (max = ich stan konta,
-nie mniej niż 1000), potem piszą odpowiedzi na telefonach, a admin odkrywa je
-**publicznie, jedna po drugiej** i uznaje lub odrzuca. Na koniec pokazuje się podium
-ze zwycięzcą.
+nie mniej niż 1000, obstawianie to zwykły numeryczny input), potem odpowiadają na
+telefonach — **odręcznie, na rysowanym panelu** (`DrawingPad`), a nie wpisując tekst z
+klawiatury: pisze/rysuje się palcem po ekranie, widać charakter pisma, bardziej „na
+żywo”. Panel serializuje się do lekkiego JSON-a (lista kresek punktów), nie do
+rastrowego obrazka, więc nawet długa odpowiedź to zwykle kilka KB w stanie gry.
+Admin odkrywa odpowiedzi **publicznie, jedna po drugiej** (widzi je od razu, jeszcze
+przed odkryciem — może ocenić, zanim gracze zobaczą) i uznaje lub odrzuca. Na koniec
+pokazuje się podium ze zwycięzcą.
 
 ## Edytor pytań (`#/editor`)
 
@@ -175,15 +184,29 @@ ze zwycięzcą.
 - Pakiet zapisuje się automatycznie w przeglądarce (IndexedDB) i można go
   eksportować/importować jako JSON.
 
-Materiały z linków `https://…` widzą też gracze na telefonach. Pliki wgrane z dysku trafiają
-do graczy tak samo, dopóki mieszczą się w 15 MB (z zapasem na kilkuminutowe nagranie audio) —
-edytor pokazuje przy każdym pliku, czy pójdzie „także na telefony", czy zostanie tylko na
-ekranie hosta. Większe pliki (typowo długie wideo) celowo nie są wysyłane graczom, bo są
-wysyłane w całości przy każdej kolejnej synchronizacji stanu gry, dopóki pytanie jest otwarte
-(np. każde uznanie/odrzucenie odpowiedzi, każda ręczna korekta punktów) — dla takiego pliku
-gracz na telefonie widzi tylko informację, że materiał leci na ekranie hosta. Żeby duży plik
-(zwłaszcza wideo) zawsze trafiał też na telefony, wklej go jako link `https://…` (np. YouTube)
-zamiast wgrywać z dysku — linki nie mają limitu rozmiaru.
+### Preload multimediów — wszystko na żywo od razu przy wejściu do gry
+
+Gracz, który dołącza do pokoju, dostaje od hosta od razu **cały pakiet multimediów** wgranych
+z dysku (zdjęcia, audio, wideo — z pytań, odpowiedzi i podpowiedzi ABCD, ze wszystkich
+kategorii obu rund, puli oszacowania i finału) jako jedną paczkę zaraz po dołączeniu, zanim
+jeszcze zobaczy pierwsze pytanie. Dzięki temu żaden plik nie musi się dociągać w danej chwili
+gry (np. dokładnie w momencie odsłonięcia odpowiedzi) — telefon ma go już w pamięci i
+odtwarza natychmiast. Materiały wklejone jako link `https://…` nie są w tej paczce (przeglądarka
+i tak pobiera je bezpośrednio spod adresu, więc nie ma czego przesyłać z wyprzedzeniem) i
+zawsze grają normalnie, niezależnie od rozmiaru.
+
+Odtwarzacz na telefonie gracza korzysta z tego preloadu automatycznie — nie trzeba niczego
+ustawiać. Rozgłaszany na żywo stan gry (`active.media`/`active.answerMedia` — to, co się
+zmienia przy każdym ruchu w grze) dalej wysyła plik wprost tylko wtedy, gdy mieści się w
+15 MB (edytor pokazuje przy każdym pliku, czy pójdzie „także na telefony"), ale dla większych
+plików gracz i tak odtwarza je z paczki preloadowanej na starcie — limit 15 MB dotyczy tylko
+tego jednego, dodatkowego, szybszego kanału, nie tego, czy plik w ogóle dotrze do telefonu.
+Jedyny moment, w którym coś może się jeszcze nie odtworzyć, to sam początek gry, zanim paczka
+preloadu zdąży w pełni dotrzeć (duży pakiet multimediów potrzebuje chwilę na transfer przy
+dołączaniu) — wtedy odtwarzacz po prostu pojawi się z małym opóźnieniem. Żeby uniknąć nawet
+tego opóźnienia dla bardzo dużych plików (zwłaszcza wideo), można je wkleić jako link
+`https://…` (np. YouTube) zamiast wgrywać z dysku — przeglądarka gracza ładuje je wtedy sama,
+bezpośrednio spod adresu.
 
 Nazwa wgranego pliku (np. „koncert_2019.mp3") widoczna jest w trakcie gry tylko na ekranie
 prowadzącego — gracze na telefonach widzą sam odtwarzacz/obrazek, bez nazwy pliku.

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Gavel, RotateCcw, Send, Wifi } from 'lucide-react'
 import { BoardGrid } from '@/components/game/BoardGrid'
-import { MediaView } from '@/components/game/MediaView'
+import { DrawingPad } from '@/components/game/DrawingPad'
+import { MediaCacheProvider, MediaView } from '@/components/game/MediaView'
 import { PhraseBoard, Wheel, WHEEL_SPIN_MS } from '@/components/game/Wheel'
 import { PlayerStrip } from '@/components/game/PlayerStrip'
 import { Results } from '@/components/game/Results'
@@ -26,7 +27,7 @@ export function PlayScreen({
   initialCode: string
   navigate: (path: string) => void
 }) {
-  const { status, error, state, playerId, me, transport, join, send } = usePlayerGame()
+  const { status, error, state, playerId, me, transport, mediaCache, join, send } = usePlayerGame()
   const remembered = useMemo(() => recallPlayer(), [])
   const [code, setCode] = useState(initialCode || remembered?.code || '')
   const [name, setName] = useState(remembered?.name ?? '')
@@ -105,41 +106,43 @@ export function PlayScreen({
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full min-w-[1600px] max-w-[1600px] flex-col gap-3 p-3 pb-10">
-      <header className="panel flex items-center gap-3 px-3 py-2">
-        <span
-          className="grid size-11 place-items-center rounded-full text-2xl"
-          style={{
-            background: `color-mix(in oklch, ${me.color} 28%, transparent)`,
-            boxShadow: `inset 0 0 0 2px ${me.color}`,
-          }}
-        >
-          {me.avatar}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold">{me.name}</div>
-          <div className={cn('text-display text-2xl leading-none', me.score < 0 && 'text-coral')}>
-            {formatPoints(me.score)}
+    <MediaCacheProvider value={mediaCache}>
+      <div className="mx-auto flex min-h-screen w-full min-w-[1600px] max-w-[1600px] flex-col gap-3 p-3 pb-10">
+        <header className="panel flex items-center gap-3 px-3 py-2">
+          <span
+            className="grid size-11 place-items-center rounded-full text-2xl"
+            style={{
+              background: `color-mix(in oklch, ${me.color} 28%, transparent)`,
+              boxShadow: `inset 0 0 0 2px ${me.color}`,
+            }}
+          >
+            {me.avatar}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-semibold">{me.name}</div>
+            <div className={cn('text-display text-2xl leading-none', me.score < 0 && 'text-coral')}>
+              {formatPoints(me.score)}
+            </div>
           </div>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <Badge tone={transport === 'peer' ? 'mint' : 'violet'}>
-            <Wifi className="size-3" /> {transport === 'peer' ? 'online' : 'lokalnie'}
-          </Badge>
-        </div>
-      </header>
+          <div className="flex flex-col items-end gap-1">
+            <Badge tone={transport === 'peer' ? 'mint' : 'violet'}>
+              <Wifi className="size-3" /> {transport === 'peer' ? 'online' : 'lokalnie'}
+            </Badge>
+          </div>
+        </header>
 
-      {status === 'reconnecting' ? (
-        <div className="panel flex items-center gap-2 border-gold/50 bg-gold/10 px-3 py-2 text-sm text-gold">
-          <span className="animate-buzz size-2 rounded-full bg-gold" />
-          Łączę ponownie z hostem… Twoje miejsce w grze jest zachowane.
-        </div>
-      ) : null}
+        {status === 'reconnecting' ? (
+          <div className="panel flex items-center gap-2 border-gold/50 bg-gold/10 px-3 py-2 text-sm text-gold">
+            <span className="animate-buzz size-2 rounded-full bg-gold" />
+            Łączę ponownie z hostem… Twoje miejsce w grze jest zachowane.
+          </div>
+        ) : null}
 
-      <PlayerStrip state={state} highlightId={state.currentPlayerId} meId={me.id} compact />
+        <PlayerStrip state={state} highlightId={state.currentPlayerId} meId={me.id} compact />
 
-      <PlayerBody state={state} me={me} playerId={playerId} send={send} />
-    </div>
+        <PlayerBody state={state} me={me} playerId={playerId} send={send} />
+      </div>
+    </MediaCacheProvider>
   )
 }
 
@@ -217,20 +220,14 @@ function PlayerBody({
         {/* Treść pytania widoczna dla wszystkich graczy od razu — nawet zanim admin
             ruszy timer i zanim ktokolwiek zacznie odpowiadać. */}
         <p className="mt-3 text-lg leading-snug font-semibold">{active.prompt}</p>
-        {active.media?.src ? (
-          <MediaView media={active.media} className="mt-3" hideLabel />
-        ) : active.media ? (
-          <p className="mt-2 text-sm text-white/50">Materiał odtwarza prowadzący na dużym ekranie.</p>
-        ) : null}
+        {/* MediaView resolves either the inline `src` or — for a big local upload — the copy
+            already preloaded on join (see MediaCacheProvider), so this just always renders it. */}
+        {active.media ? <MediaView media={active.media} className="mt-3" hideLabel /> : null}
         {active.answerRevealed ? (
           <div className="mt-3 rounded-xl border border-mint/60 bg-mint/10 p-3">
             <div className="text-xs text-mint uppercase">Poprawna odpowiedź</div>
             <div className="text-lg font-semibold">{active.answerText}</div>
-            {active.answerMedia?.src ? (
-              <MediaView media={active.answerMedia} className="mt-3" hideLabel />
-            ) : active.answerMedia ? (
-              <p className="mt-2 text-sm text-white/50">Materiał odtwarza prowadzący na dużym ekranie.</p>
-            ) : null}
+            {active.answerMedia ? <MediaView media={active.answerMedia} className="mt-3" hideLabel /> : null}
           </div>
         ) : null}
       </Panel>
@@ -264,7 +261,7 @@ function StandardPlayerControls({
   const mySelection = active.selections[me.id]
   const alreadyAttempted = assignment.attempted.includes(me.id)
   const inQueue = assignment.takeoverQueue.includes(me.id)
-  const takeoverCapReached = state.takeoversUsed >= 4
+  const takeoverCapReached = state.takeoversUsed >= state.rules.maxTakeoversPerBoard
   // Respektuje ręczny znacznik z edytora (`allowTakeover`), nie tylko starą regułę >2
   // odpowiedzi — liczone raz po stronie silnika w `makeActive()`, patrz `StandardAssignment.canTakeover`.
   const takeoverEligible = assignment.canTakeover
@@ -403,7 +400,7 @@ function EstimationPlayerView({
     <Panel className="flex flex-col gap-3">
       <PanelTitle>Runda oszacowania</PanelTitle>
       <p className="text-lg font-semibold">{est.prompt}</p>
-      {est.media?.src ? <MediaView media={est.media} className="mt-1" hideLabel /> : null}
+      {est.media ? <MediaView media={est.media} className="mt-1" hideLabel /> : null}
       {!est.revealed ? (
         myGuess !== undefined ? (
           <div className="text-center">
@@ -734,9 +731,7 @@ function FinalPlayerView({
         </div>
         <div className="text-display text-3xl text-gold">{final.category}</div>
         {final.prompt ? <p className="mt-3 text-lg font-semibold">{final.prompt}</p> : null}
-        {final.media?.src && final.prompt ? (
-          <MediaView media={final.media} className="mt-3" hideLabel />
-        ) : null}
+        {final.media && final.prompt ? <MediaView media={final.media} className="mt-3" hideLabel /> : null}
         {remaining !== null && final.stage === 'answering' ? (
           <div className={cn('text-display mt-2 text-4xl', remaining <= 10 ? 'text-coral' : 'text-white')}>
             {remaining}s
@@ -792,11 +787,7 @@ function FinalPlayerView({
       {final.stage === 'question' || final.stage === 'answering' ? (
         <Panel className="flex flex-col gap-3">
           <PanelTitle>Twoja odpowiedź (obstawiono {formatPoints(myWager ?? 0)})</PanelTitle>
-          <Input
-            placeholder="Napisz odpowiedź…"
-            value={answer}
-            onChange={(event) => setAnswer(event.target.value)}
-          />
+          <DrawingPad value={answer} onChange={setAnswer} editable resetKey={final.index} className="h-40" />
           <Button
             variant="primary"
             size="lg"
@@ -834,7 +825,11 @@ function FinalPlayerView({
                   <Badge tone="gold">{formatPoints(final.wagers[player.id] ?? 0)}</Badge>
                 </div>
                 <div className="mt-1">
-                  {revealed ? `„${final.answers[player.id] || '—'}”` : 'odpowiedź zakryta'}
+                  {revealed ? (
+                    <DrawingPad value={final.answers[player.id]} className="h-24" />
+                  ) : (
+                    'odpowiedź zakryta'
+                  )}
                 </div>
               </div>
             )
@@ -843,11 +838,7 @@ function FinalPlayerView({
             <div className="rounded-xl border border-mint/60 bg-mint/10 p-3 text-center">
               <div className="text-xs text-mint uppercase">Poprawna odpowiedź</div>
               <div className="text-lg font-semibold">{final.answerText}</div>
-              {final.answerMedia?.src ? (
-                <MediaView media={final.answerMedia} className="mt-3" hideLabel />
-              ) : final.answerMedia ? (
-                <p className="mt-2 text-sm text-white/50">Materiał odtwarza prowadzący na dużym ekranie.</p>
-              ) : null}
+              {final.answerMedia ? <MediaView media={final.answerMedia} className="mt-3" hideLabel /> : null}
             </div>
           ) : null}
         </Panel>

@@ -199,7 +199,10 @@ function StandardControls({ state, dispatch, dispatchAs }: Omit<AdminPanelProps,
       </Panel>
       <Panel>
         <PanelTitle>
-          Przejęcia {canTakeover ? `(${state.takeoversUsed}/4 na grę)` : '(wyłączone dla tego pytania)'}
+          Przejęcia{' '}
+          {canTakeover
+            ? `(${state.takeoversUsed}/${state.rules.maxTakeoversPerBoard} na planszę)`
+            : '(wyłączone dla tego pytania)'}
         </PanelTitle>
         {assignment.takeoverQueue.length > 0 ? (
           <div className="mt-2 flex flex-col gap-1 text-sm">

@@ -97,9 +97,11 @@ export function MediaEditor({
           </span>
           {!value.src.startsWith('data:') ||
           approxDataUrlBytes(value.src) <= MAX_PLAYER_MEDIA_BYTES ? (
-            <Badge tone="mint">także telefony</Badge>
+            <Badge tone="mint">telefony: od razu</Badge>
           ) : (
-            <Badge>tylko ekran hosta — plik &gt; {formatBytes(MAX_PLAYER_MEDIA_BYTES)}</Badge>
+            <Badge tone="mint" title={`Plik > ${formatBytes(MAX_PLAYER_MEDIA_BYTES)} — dociera do telefonów w paczce preloadu przy dołączeniu do gry, nie w błyskawicznej synchronizacji na żywo.`}>
+              telefony: z preloadu
+            </Badge>
           )}
         </div>
       ) : null}

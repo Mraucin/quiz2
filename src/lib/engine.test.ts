@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PACK, WHEEL_SEGMENTS } from './defaultPack'
-import { applyAction, createInitialState, hasRound2, joinPlayer, setConnected } from './engine'
+import { applyAction, buildMediaBundle, createInitialState, hasRound2, joinPlayer, setConnected } from './engine'
 import type { AdminAction, GameState, Pack, PlayerAction, StandardQuestion } from './types'
-import { MAX_PLAYER_MEDIA_BYTES } from './utils'
+import { MAX_FINAL_ANSWER_CHARS, MAX_PLAYER_MEDIA_BYTES, mediaHashId } from './utils'
 
 const pack: Pack = structuredClone(DEFAULT_PACK)
 // Testy poniżej liczą dokładne delty punktowe (np. "+300", "wynik to 0") niezależnie od
@@ -252,7 +252,7 @@ describe('pytania zwykłe', () => {
     expect(state.takeoversUsed).toBe(0)
   })
 
-  it('limituje przejęcia do 4 na całą grę', () => {
+  it('limituje przejęcia do pack.rules.maxTakeoversPerBoard (domyślnie 4) na planszę', () => {
     const { state: started, ids } = startedGame()
     let state = started
     for (let i = 0; i < 4; i += 1) {
@@ -272,6 +272,50 @@ describe('pytania zwykłe', () => {
     state = asPlayer(state, requester, { type: 'requestTakeover' })
     expect(state.active?.assignment?.takeoverQueue).toEqual([])
     expect(state.takeoversUsed).toBe(4)
+  })
+
+  it('limit przejęć jest konfigurowalny przez pack.rules.maxTakeoversPerBoard', () => {
+    const { state: started, ids } = startedGame()
+    const original = pack.rules.maxTakeoversPerBoard
+    pack.rules.maxTakeoversPerBoard = 1
+    try {
+      let state = openCell(started, 'Fobie', 0)
+      state = admin(state, { type: 'startAnswerTimer' })
+      let assignee = state.active!.assignment!.assignedPlayerId
+      let requester = ids.find((id) => id !== assignee)!
+      state = asPlayer(state, requester, { type: 'requestTakeover' })
+      expect(state.takeoversUsed).toBe(1)
+      state = admin(state, { type: 'judge', playerId: assignee, correct: true })
+      state = admin(state, { type: 'closeQuestion' })
+
+      // Limit już wykorzystany na tej planszy — kolejne przejęcie odrzucone mimo pytania ABCD.
+      state = openCell(state, 'Fobie', 1)
+      state = admin(state, { type: 'startAnswerTimer' })
+      assignee = state.active!.assignment!.assignedPlayerId
+      requester = ids.find((id) => id !== assignee)!
+      state = asPlayer(state, requester, { type: 'requestTakeover' })
+      expect(state.active?.assignment?.takeoverQueue).toEqual([])
+      expect(state.takeoversUsed).toBe(1)
+    } finally {
+      pack.rules.maxTakeoversPerBoard = original
+    }
+  })
+
+  it('maxTakeoversPerBoard: 0 wyłącza przejmowanie całkowicie', () => {
+    const { state: started, ids } = startedGame()
+    const original = pack.rules.maxTakeoversPerBoard
+    pack.rules.maxTakeoversPerBoard = 0
+    try {
+      let state = openCell(started, 'Fobie', 0) // 4 opcje — normalnie dozwolone
+      state = admin(state, { type: 'startAnswerTimer' })
+      const assignee = state.active!.assignment!.assignedPlayerId
+      const requester = ids.find((id) => id !== assignee)!
+      state = asPlayer(state, requester, { type: 'requestTakeover' })
+      expect(state.active?.assignment?.takeoverQueue).toEqual([])
+      expect(state.takeoversUsed).toBe(0)
+    } finally {
+      pack.rules.maxTakeoversPerBoard = original
+    }
   })
 })
 
@@ -339,9 +383,38 @@ describe('media odpowiedzi — limit rozmiaru dla graczy', () => {
       state2 = admin(state2, { type: 'revealAnswer' })
       expect(state2.active?.answerMedia?.src).toBeUndefined()
       expect(state2.active?.answerMedia?.kind).toBe('audio') // rodzaj i etykieta zostają — tylko `src` jest ucięte
+      // Mimo ucięcia `src`, gracz może to odtworzyć od razu z bundla preloadowanego przy
+      // dołączeniu (patrz opis "media bundle — preload przy dołączeniu" niżej) — dlatego
+      // `mediaId` musi zostać, niezależnie od rozmiaru pliku.
+      expect(state2.active?.answerMedia?.mediaId).toBe(mediaHashId(big))
     } finally {
       question.answerMedia = originalAnswerMedia
     }
+  })
+})
+
+describe('media bundle — preload przy dołączeniu', () => {
+  it('zawiera każdy lokalnie wgrany plik z pakietu dokładnie raz, pomija linki http(s)', () => {
+    const localA = `data:image/png;base64,${'A'.repeat(500)}`
+    const localB = `data:audio/mp3;base64,${'B'.repeat(500)}`
+    const remote = 'https://example.com/clip.mp4'
+    const testPack: Pack = structuredClone(pack)
+    const category = testPack.categories.find((c) => c.name === 'Fobie')!
+    const question = category.questions[0] as StandardQuestion
+    question.media = { kind: 'image', src: localA }
+    question.answerMedia = { kind: 'audio', src: localB } // ten sam plik co niżej — powinien się zdeduplikować
+    if (question.choices?.[0]) {
+      question.choices[0] = { ...question.choices[0], media: { kind: 'audio', src: localB } }
+    }
+    const finalQuestion = testPack.final[0]
+    if (finalQuestion) finalQuestion.answerMedia = { kind: 'video', src: remote }
+
+    const bundle = buildMediaBundle(testPack)
+    const ids = bundle.map((item) => item.id)
+    expect(ids).toContain(mediaHashId(localA))
+    expect(ids).toContain(mediaHashId(localB))
+    expect(ids.filter((id) => id === mediaHashId(localB))).toHaveLength(1) // zdeduplikowane
+    expect(bundle.some((item) => item.src === remote)).toBe(false) // linki http(s) nie idą do bundla
   })
 })
 
@@ -571,6 +644,29 @@ describe('finał', () => {
     }
     expect(state.phase).toBe('results')
   })
+
+  it('odpowiedź finałowa (szkic z DrawingPad) trzyma dużo więcej niż dawny limit 400 znaków, ale wciąż jest ucinana', () => {
+    const { state: started, ids } = startedGame()
+    let state = admin(started, { type: 'startFinal' })
+    state = admin(state, { type: 'finalStage', stage: 'wagering' })
+    state = asPlayer(state, ids[0], { type: 'finalWager', amount: 100 })
+    state = admin(state, { type: 'finalStage', stage: 'question' })
+
+    // Symulacja zserializowanego szkicu — dłuższa odpowiedź niż stary limit 400 znaków, ale
+    // poniżej MAX_FINAL_ANSWER_CHARS.
+    const sketch = JSON.stringify([
+      Array.from({ length: 200 }, (_, i) => [i, i % 50]),
+    ])
+    expect(sketch.length).toBeGreaterThan(400)
+    expect(sketch.length).toBeLessThan(MAX_FINAL_ANSWER_CHARS)
+    state = asPlayer(state, ids[0], { type: 'finalAnswer', text: sketch })
+    expect(state.final?.answers[ids[0]]).toBe(sketch)
+
+    // Absurdalnie długi (uszkodzony/złośliwy) payload nadal się ucina.
+    const huge = 'x'.repeat(MAX_FINAL_ANSWER_CHARS + 5000)
+    state = asPlayer(state, ids[0], { type: 'finalAnswer', text: huge })
+    expect(state.final?.answers[ids[0]]).toHaveLength(MAX_FINAL_ANSWER_CHARS)
+  })
 })
 
 describe('reset', () => {
@@ -751,6 +847,36 @@ describe('runda 2 (dwie plansze)', () => {
     expect(state.round).toBe(1)
     const afterNoop = admin(state, { type: 'startRound2' })
     expect(afterNoop.round).toBe(1)
+  })
+
+  it('limit przejęć (takeoversUsed) zeruje się przy każdej zmianie planszy, nie liczy się na całą grę', () => {
+    const { state: lobby, ids } = lobby2(['Ala', 'Bolek'])
+    let state = admin2(lobby, { type: 'startGame' })
+    state = resolveEstimation(state, ids)
+
+    // Wykorzystaj limit przejęć (domyślnie 4) na Rundzie 1.
+    round2Pack.rules.maxTakeoversPerBoard = 1
+    try {
+      const round1Cat = round2Pack.categories.find((c) => (c.round ?? 1) === 1)!
+      state = admin2(state, {
+        type: 'openQuestion',
+        categoryId: round1Cat.id,
+        questionId: round1Cat.questions[0].id,
+      })
+      state = admin2(state, { type: 'startAnswerTimer' })
+      const assignee = state.active!.assignment!.assignedPlayerId
+      const requester = ids.find((id) => id !== assignee)!
+      state = asPlayer2(state, requester, { type: 'requestTakeover' })
+      expect(state.takeoversUsed).toBe(1)
+      state = admin2(state, { type: 'judge', playerId: assignee, correct: true })
+      state = admin2(state, { type: 'closeQuestion' })
+
+      // Ręczne przełączenie planszy zeruje licznik.
+      state = admin2(state, { type: 'setRound', round: 2 })
+      expect(state.takeoversUsed).toBe(0)
+    } finally {
+      round2Pack.rules.maxTakeoversPerBoard = 4
+    }
   })
 })
 

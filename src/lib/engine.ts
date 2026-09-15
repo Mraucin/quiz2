@@ -6,12 +6,19 @@ import type {
   GameAction,
   GameState,
   Media,
+  MediaBundleItem,
   Pack,
   Player,
   PublicMedia,
   Question,
 } from './types'
-import { approxDataUrlBytes, MAX_PLAYER_MEDIA_BYTES, randomId } from './utils'
+import {
+  approxDataUrlBytes,
+  MAX_FINAL_ANSWER_CHARS,
+  MAX_PLAYER_MEDIA_BYTES,
+  mediaHashId,
+  randomId,
+} from './utils'
 
 export const VOWELS = 'AĄEĘIOÓUY'
 
@@ -37,15 +44,54 @@ export function cellValue(pack: Pack, category: Pick<Category, 'multiplier' | 'f
 }
 
 /**
- * Remote (http/https) media always goes to phones. Local uploads (`data:` URLs) go too, as
- * long as they're under `MAX_PLAYER_MEDIA_BYTES` — bigger ones stay host-screen-only (players
- * see a "playing on the host screen" note instead — see `Play.tsx`).
+ * Remote (http/https) media always goes to phones inline. Local uploads (`data:` URLs) go
+ * inline too, as long as they're under `MAX_PLAYER_MEDIA_BYTES` — but every local upload also
+ * gets a stable `mediaId` regardless of size, so a player who missed the inline copy (too big
+ * for this particular broadcast) can still resolve it instantly from the media bundle it
+ * preloaded on join (see `buildMediaBundle` below and `MediaCacheProvider` in `MediaView.tsx`).
  */
 function toPublicMedia(media?: Media): PublicMedia | undefined {
   if (!media) return undefined
   const isRemote = /^https?:\/\//i.test(media.src)
   const fitsForPlayers = isRemote || approxDataUrlBytes(media.src) <= MAX_PLAYER_MEDIA_BYTES
-  return { kind: media.kind, label: media.label, src: fitsForPlayers ? media.src : undefined }
+  return {
+    kind: media.kind,
+    label: media.label,
+    src: fitsForPlayers ? media.src : undefined,
+    mediaId: isRemote ? undefined : mediaHashId(media.src),
+  }
+}
+
+/**
+ * Every local (`data:`) media file anywhere in the pack — question/answer/choice media across
+ * every category (both rounds), the estimation pool, and the final round — deduped by content.
+ * Sent once to each player right after they join (`useHostGame.ts`) so every file is already
+ * in the browser before it's ever needed, instead of streaming in right as a question opens or
+ * an answer is revealed. Remote (http/https) media isn't included — the browser fetches that
+ * directly from its URL and doesn't need it relayed over the data channel.
+ */
+export function buildMediaBundle(pack: Pack): MediaBundleItem[] {
+  const items = new Map<string, MediaBundleItem>()
+  const add = (media?: Media) => {
+    if (!media || !media.src.startsWith('data:')) return
+    const id = mediaHashId(media.src)
+    if (!items.has(id)) items.set(id, { id, kind: media.kind, src: media.src, label: media.label })
+  }
+  for (const category of pack.categories) {
+    for (const question of category.questions) {
+      add(question.media)
+      add(question.answerMedia)
+      if (question.kind === 'standard') {
+        question.choices?.forEach((choice) => add(choice.media))
+      }
+    }
+  }
+  pack.estimation.forEach((question) => add(question.media))
+  pack.final.forEach((question) => {
+    add(question.media)
+    add(question.answerMedia)
+  })
+  return [...items.values()]
 }
 
 export function buildBoard(pack: Pack): BoardCategory[] {
@@ -551,7 +597,7 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
         state.currentPlayerId = null
         state.board = buildBoard(pack)
         state.round = 1
-        state.takeoversUsed = 0
+        state.takeoversUsed = 0 // licznik "na planszę" — patrz `pack.rules.maxTakeoversPerBoard`
         state.estimationUsedIds = []
         startEstimationRound(pack, state, [...state.turnOrder])
         log(state, 'Gra rozpoczęta!', 'good')
@@ -608,6 +654,9 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
         if (!hasRound2(pack)) break
         state.round = 2
         state.active = null
+        // Limit przejęć jest "na planszę" (`pack.rules.maxTakeoversPerBoard`), więc nowa plansza
+        // zaczyna z czystym licznikiem — patrz też `startGame` i `setRound` niżej.
+        state.takeoversUsed = 0
         startEstimationRound(pack, state, [...eligibleTurnOrder(state)])
         log(state, 'Runda 2! Nowa runda oszacowania decyduje, kto zaczyna wybierać.', 'good')
         break
@@ -620,6 +669,7 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
         if (!hasRound2(pack)) break
         if (state.round === action.round) break
         state.round = action.round
+        state.takeoversUsed = 0
         log(state, `Prowadzący przełącza na planszę Rundy ${action.round}`)
         break
       }
@@ -1032,9 +1082,10 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
       if (assignment.takeoverQueue.includes(playerId)) return prev
       // Whether this question can be taken over at all — editor override or the default
       // choice-count rule, computed once in `makeActive` (see `StandardAssignment.canTakeover`)
-      // — and only a handful of takeovers per game regardless.
+      // — and only a limited number of takeovers per PLANSZA (board) regardless, configurable
+      // via `pack.rules.maxTakeoversPerBoard` (see reset points in `startGame`/`startRound2`/`setRound`).
       if (!assignment.canTakeover) return prev
-      if (state.takeoversUsed >= 4) return prev
+      if (state.takeoversUsed >= pack.rules.maxTakeoversPerBoard) return prev
       assignment.takeoverQueue.push(playerId)
       state.takeoversUsed += 1
       log(state, `${player.avatar} ${player.name} chce przejąć pytanie`)
@@ -1105,7 +1156,11 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
     case 'finalAnswer': {
       if (!state.final) return prev
       if (state.final.stage !== 'answering' && state.final.stage !== 'question') return prev
-      state.final.answers[playerId] = action.text.slice(0, 400)
+      // `action.text` to teraz zserializowany szkic z `DrawingPad` (JSON tablicy kresek punktów),
+      // nie wpisany tekst — zwykła odpowiedź to zwykle kilkaset-kilka tysięcy znaków, stąd wyższy
+      // limit niż dawne 400 dla samego tekstu; wciąż go trzymamy, żeby ktoś złośliwy/pomyłkowo
+      // nie wysłał gigantycznego szkicu w broadcastowanym stanie gry.
+      state.final.answers[playerId] = action.text.slice(0, MAX_FINAL_ANSWER_CHARS)
       state.final.submitted[playerId] = true
       break
     }

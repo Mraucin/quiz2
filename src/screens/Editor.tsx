@@ -851,6 +851,23 @@ function EditorScreenContent({
             </p>
           </div>
           <div>
+            <Label>Limit przejęć na planszę</Label>
+            <Input
+              inputMode="numeric"
+              value={pack.rules.maxTakeoversPerBoard}
+              onChange={(event) =>
+                patchPack({
+                  rules: { ...pack.rules, maxTakeoversPerBoard: Number(event.target.value) || 0 },
+                })
+              }
+            />
+            <p className="mt-1 text-xs text-white/45">
+              Ile razy można przejąć pytanie w obrębie jednej planszy (Rundy 1, osobno Rundy 2).
+              Licznik zeruje się na starcie gry i przy każdej zmianie planszy. Ustaw 0, żeby
+              całkowicie wyłączyć przejmowanie.
+            </p>
+          </div>
+          <div>
             <Label>PIN prowadzącego</Label>
             <Input
               value={pack.rules.hostPin}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { applyAction, createInitialState, joinPlayer, setConnected } from '@/lib/engine'
+import { applyAction, buildMediaBundle, createInitialState, joinPlayer, setConnected } from '@/lib/engine'
 import { createHost, type HostNet, type PeerStatus } from '@/lib/net'
-import type { AdminAction, GameState, Pack, PlayerAction } from '@/lib/types'
+import type { AdminAction, GameState, MediaBundleItem, Pack, PlayerAction } from '@/lib/types'
 import { roomCode } from '@/lib/utils'
 
 const CODE_KEY = 'jeopardy-twist:code'
@@ -68,10 +68,20 @@ export function useHostGame(pack: Pack | null) {
   const seats = useRef(new Map<string, string>())
   /** connection id -> last time we heard *anything* from it (join, action, or a bare ping). */
   const lastSeen = useRef(new Map<string, number>())
+  // Every local media file in the pack, built once per pack (not per join) — sent to each
+  // player right after they join so playback never has to wait on a transfer later. A ref
+  // (not just the memo) because the join handler below is set up once and needs the latest
+  // value without re-subscribing.
+  const mediaBundle = useMemo(() => (pack ? buildMediaBundle(pack) : []), [pack])
+  const mediaBundleRef = useRef<MediaBundleItem[]>(mediaBundle)
 
   useEffect(() => {
     packRef.current = pack
   }, [pack])
+
+  useEffect(() => {
+    mediaBundleRef.current = mediaBundle
+  }, [mediaBundle])
 
   const commit = useCallback((next: GameState) => {
     next.now = Date.now()
@@ -130,6 +140,9 @@ export function useHostGame(pack: Pack | null) {
           seats.current.set(connId, result.playerId)
           commit(result.state)
           net.send(connId, { type: 'welcome', playerId: result.playerId, state: result.state })
+          if (mediaBundleRef.current.length) {
+            net.send(connId, { type: 'mediaBundle', items: mediaBundleRef.current })
+          }
           return
         }
 

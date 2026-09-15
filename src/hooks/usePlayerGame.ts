@@ -18,6 +18,11 @@ export function usePlayerGame() {
   const [state, setState] = useState<GameState | null>(null)
   const [playerId, setPlayerId] = useState<string | null>(null)
   const [transport, setTransport] = useState<'local' | 'peer' | null>(null)
+  // Local media the host has preloaded onto this phone (see `mediaBundle` in useHostGame.ts) —
+  // id -> data: URL, so `<MediaView>` can resolve a file instantly instead of waiting for it to
+  // stream in the moment a question opens or an answer is revealed. Merged (not replaced) on
+  // every `mediaBundle` message so a mid-game reconnect never loses what was already preloaded.
+  const [mediaCache, setMediaCache] = useState<Map<string, string>>(() => new Map())
   const netRef = useRef<ClientNet | null>(null)
   const pingTimerRef = useRef<number | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
@@ -137,6 +142,16 @@ export function usePlayerGame() {
             startPing()
           }
           if (message.type === 'rejected') setError(message.reason)
+          if (message.type === 'mediaBundle') {
+            setMediaCache((prev) => {
+              // Cheap bail-out: if every id we were just sent is already cached (the common
+              // case on a reconnect), skip the update entirely instead of forcing a re-render.
+              if (message.items.every((item) => prev.has(item.id))) return prev
+              const next = new Map(prev)
+              for (const item of message.items) next.set(item.id, item.src)
+              return next
+            })
+          }
         },
         onClose: () => {
           if (destroyedRef.current) return
@@ -196,5 +211,5 @@ export function usePlayerGame() {
 
   const me = state?.players.find((p) => p.id === playerId) ?? null
 
-  return { status, error, state, playerId, me, transport, join, send }
+  return { status, error, state, playerId, me, transport, mediaCache, join, send }
 }

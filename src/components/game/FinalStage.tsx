@@ -1,4 +1,5 @@
 import { Check, Eye, Lock, Send, X } from 'lucide-react'
+import { DrawingPad } from '@/components/game/DrawingPad'
 import { MediaView } from '@/components/game/MediaView'
 import { Button } from '@/components/ui/button'
 import { Badge, Input, Panel, PanelTitle } from '@/components/ui/primitives'
@@ -99,8 +100,8 @@ export function FinalStageView({
                 ) : null}
               </div>
               {revealed ? (
-                <div className="animate-pop text-xl">
-                  „{final.answers[player.id] || '— brak odpowiedzi —'}”
+                <div className="animate-pop">
+                  <DrawingPad value={final.answers[player.id]} className="h-28" />
                 </div>
               ) : (
                 <div className="text-sm text-white/35">
@@ -215,9 +216,7 @@ export function FinalControls({
                   <span className="text-xs text-white/40">max {formatPoints(maxWager(player))}</span>
                 </div>
                 <div className="mt-1.5 flex items-center gap-2">
-                  <div className="flex-1 truncate text-sm text-white/70">
-                    {final.answers[player.id] ? `„${final.answers[player.id]}”` : 'brak odpowiedzi'}
-                  </div>
+                  <DrawingPad value={final.answers[player.id]} className="h-16 w-40 flex-none" />
                   <Button
                     size="sm"
                     variant={revealed ? 'ghost' : 'outline'}
