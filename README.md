@@ -127,8 +127,13 @@ potem klika „Zacznij timer” (domyślnie 20 sekund, `pack.rules.answerTimerSe
   wyznaczył — np. w rundzie 1) i wyznacza jeszcze raz.
 - Jeśli wyznaczony gracz jednak odpowie poprawnie, mimo że ktoś już zgłosił przejęcie, ten
   ktoś traci punkty równe wartości pytania — kara za przedwczesne kliknięcie.
-- Przejęcie działa tylko w pytaniach z **więcej niż dwiema** odpowiedziami do wyboru (czyli
-  praktycznie ABCD) i tylko **4 razy na całą grę** — licznik widać w panelu admina.
+- Domyślnie przejęcie działa tylko w pytaniach z **więcej niż dwiema** odpowiedziami do
+  wyboru (czyli praktycznie ABCD) i tylko **4 razy na całą grę** — licznik widać w panelu
+  admina. W edytorze przy każdym pytaniu można to nadpisać ręcznie („Przejmowanie pytania”:
+  Domyślnie / Zawsze można przejąć / Nigdy nie można przejąć) — przydatne np. gdy pytanie
+  otwarte ma być mimo wszystko sporne, albo gdy ABCD ma zostać tylko dla wyznaczonego gracza.
+  Lista pytań w edytorze pokazuje przy każdym znaczek (✓ / 🚫), jak dane pytanie się
+  aktualnie rozstrzyga.
 
 | Typ | Jak działa |
 | --- | --- |
@@ -152,7 +157,8 @@ ze zwycięzcą.
 - Zakładka „Oszacowanie”: pula pytań do rundy(rund) oszacowania — dodawanie, usuwanie,
   treść pytania, poprawna liczba, jednostka, notatka dla prowadzącego, multimedia.
 - Pytania: typ, treść, podpowiedzi ABCD (z oznaczeniem poprawnej) albo pytanie otwarte,
-  klucz odpowiedzi, notatka dla prowadzącego, tekst dla lektora.
+  klucz odpowiedzi, notatka dla prowadzącego, tekst dla lektora, znacznik przejmowania
+  (Domyślnie / Zawsze / Nigdy — patrz opis mechaniki przejęć wyżej).
 - Multimedia w pytaniu, w odpowiedzi i w każdej opcji ABCD: zdjęcie, audio lub wideo —
   z linku (`https://…`) albo wgrane z dysku. Link do filmu z YouTube (`youtube.com/watch?…`,
   `youtu.be/…`, `/shorts/…`) leci jako odtwarzalny embed (`youtube-nocookie.com` — wariant z

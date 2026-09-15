@@ -152,7 +152,7 @@ function StandardControls({ state, dispatch, dispatchAs }: Omit<AdminPanelProps,
   const designator = playerById(state, assignment.designatorId)
   const holder = playerById(state, active.lockedPlayerId)
   const remaining = secondsLeft(assignment.timerEndsAt)
-  const canTakeover = Boolean(active.choices && active.choices.length > 2)
+  const canTakeover = assignment.canTakeover
 
   if (active.stage === 'reading') {
     return (
@@ -199,7 +199,7 @@ function StandardControls({ state, dispatch, dispatchAs }: Omit<AdminPanelProps,
       </Panel>
       <Panel>
         <PanelTitle>
-          Przejęcia {canTakeover ? `(${state.takeoversUsed}/4 na grę)` : '(niedostępne — max 2 odpowiedzi)'}
+          Przejęcia {canTakeover ? `(${state.takeoversUsed}/4 na grę)` : '(wyłączone dla tego pytania)'}
         </PanelTitle>
         {assignment.takeoverQueue.length > 0 ? (
           <div className="mt-2 flex flex-col gap-1 text-sm">

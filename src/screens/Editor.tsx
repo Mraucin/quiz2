@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react'
 import {
   ArrowLeft,
+  Ban,
   CheckCircle2,
   Circle,
   Download,
   Plus,
   RefreshCcw,
+  Repeat2,
   Trash2,
   Upload,
 } from 'lucide-react'
@@ -61,6 +63,13 @@ function convertKind(question: Question, kind: QuestionKind): Question {
 
 function emptyQuestion(): Question {
   return { id: randomId('q'), kind: 'standard', prompt: 'Nowe pytanie', answerText: '' }
+}
+
+/** Mirrors the engine's default rule (see `makeActive` in `engine.ts`) so the editor's badge
+ * matches what actually happens in-game for questions left on "Domyślnie". */
+function resolvesToTakeover(question: Question): boolean {
+  if (question.kind !== 'standard') return false
+  return question.allowTakeover ?? (question.choices?.length ?? 0) > 2
 }
 
 // Gates the real editor behind the pack's PIN (see HostGate) so a player who lands here
@@ -349,6 +358,19 @@ function EditorScreenContent({
                       {formatPoints(cellValue(pack, category, index))}
                     </span>
                     <span className="flex-1 truncate">{item.prompt || '(puste)'}</span>
+                    {item.kind === 'standard' ? (
+                      resolvesToTakeover(item) ? (
+                        <Repeat2
+                          className="size-3.5 shrink-0 text-mint"
+                          title="Można przejmować to pytanie"
+                        />
+                      ) : (
+                        <Ban
+                          className="size-3.5 shrink-0 text-white/25"
+                          title="Nie można przejmować tego pytania"
+                        />
+                      )
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -860,6 +882,28 @@ function StandardFields({
   const choices = question.choices ?? []
   return (
     <div className="rounded-xl border border-stage-600 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Label className="mb-0 flex-1">Przejmowanie pytania</Label>
+        <Select
+          className="h-9 w-56"
+          value={question.allowTakeover === true ? 'always' : question.allowTakeover === false ? 'never' : 'auto'}
+          onChange={(event) => {
+            const value = event.target.value
+            patchQuestion({
+              allowTakeover: value === 'always' ? true : value === 'never' ? false : undefined,
+            } as Partial<Question>)
+          }}
+        >
+          <option value="auto">Domyślnie (ABCD, &gt;2 odpowiedzi)</option>
+          <option value="always">Zawsze można przejąć</option>
+          <option value="never">Nigdy nie można przejąć</option>
+        </Select>
+      </div>
+      <p className="mt-1 mb-2 text-xs text-white/45">
+        {resolvesToTakeover(question)
+          ? 'Inny gracz będzie mógł zgłosić przejęcie, jeśli wyznaczony gracz odpowie źle.'
+          : 'Tylko wyznaczony gracz odpowiada — bez możliwości przejęcia przez innych.'}
+      </p>
       <div className="flex items-center justify-between gap-2">
         <Label className="mb-0">
           {choices.length ? 'Podpowiedzi ABCD' : 'Pytanie otwarte (bez podpowiedzi)'}

@@ -35,6 +35,13 @@ export interface StandardQuestion extends QuestionBase {
   /** Empty / missing -> open question without hints. */
   choices?: Choice[]
   correctChoiceId?: string
+  /**
+   * Overrides whether this question can be taken over (see `StandardAssignment`). Missing =
+   * automatic: allowed only for ABCD questions with more than 2 choices (the pre-existing rule —
+   * open questions and true/false-style 2-choice ones are too easy to snipe by elimination).
+   * `true`/`false` forces it on/off regardless of the choice count.
+   */
+  allowTakeover?: boolean
 }
 
 export interface WheelQuestion extends QuestionBase {
@@ -246,6 +253,10 @@ export interface StandardAssignment {
   takeoverQueue: string[]
   /** Everyone (assignee or a taker) who already had — and failed — their turn on this question. */
   attempted: string[]
+  /** Whether this specific question can be taken over — see `StandardQuestion.allowTakeover`
+   * (computed once when the question opens, so it doesn't need to be recomputed from choices
+   * everywhere that cares — admin panel included). */
+  canTakeover: boolean
 }
 
 export interface ActiveQuestion {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PACK, WHEEL_SEGMENTS } from './defaultPack'
 import { applyAction, createInitialState, hasRound2, joinPlayer, setConnected } from './engine'
-import type { AdminAction, GameState, Pack, PlayerAction } from './types'
+import type { AdminAction, GameState, Pack, PlayerAction, StandardQuestion } from './types'
 
 const pack: Pack = structuredClone(DEFAULT_PACK)
 // Testy poniżej liczą dokładne delty punktowe (np. "+300", "wynik to 0") niezależnie od
@@ -271,6 +271,49 @@ describe('pytania zwykłe', () => {
     state = asPlayer(state, requester, { type: 'requestTakeover' })
     expect(state.active?.assignment?.takeoverQueue).toEqual([])
     expect(state.takeoversUsed).toBe(4)
+  })
+})
+
+describe('ręczny znacznik przejmowania (allowTakeover)', () => {
+  it('allowTakeover: false blokuje przejęcie mimo >2 odpowiedzi (normalnie dozwolone)', () => {
+    const { state: started, ids } = startedGame()
+    const question = categoryByName('Fobie').questions[0] as StandardQuestion // 4 opcje ABCD — domyślnie dozwolone
+    question.allowTakeover = false
+    try {
+      let state = openCell(started, 'Fobie', 0)
+      expect(state.active?.assignment?.canTakeover).toBe(false)
+      state = admin(state, { type: 'startAnswerTimer' })
+      state = asPlayer(state, ids[1], { type: 'requestTakeover' })
+      expect(state.active?.assignment?.takeoverQueue).toEqual([])
+      expect(state.takeoversUsed).toBe(0)
+    } finally {
+      delete question.allowTakeover
+    }
+  })
+
+  it('allowTakeover: true włącza przejęcie mimo ≤2 odpowiedzi (normalnie zablokowane)', () => {
+    const { state: started, ids } = startedGame()
+    const question = categoryByName('Sanah czy Adolf Hitler').questions[0] as StandardQuestion // 2 opcje — domyślnie blokowane
+    question.allowTakeover = true
+    try {
+      let state = openCell(started, 'Sanah czy Adolf Hitler', 0)
+      expect(state.active?.assignment?.canTakeover).toBe(true)
+      state = admin(state, { type: 'startAnswerTimer' })
+      state = asPlayer(state, ids[1], { type: 'requestTakeover' })
+      expect(state.active?.assignment?.takeoverQueue).toEqual([ids[1]])
+      expect(state.takeoversUsed).toBe(1)
+    } finally {
+      delete question.allowTakeover
+    }
+  })
+
+  it('bez znacznika (undefined) trzyma się starej reguły opartej na liczbie odpowiedzi', () => {
+    const { state: started } = startedGame()
+    const withChoices = openCell(started, 'Fobie', 0)
+    expect(withChoices.active?.assignment?.canTakeover).toBe(true) // 4 opcje
+    const { state: started2 } = startedGame()
+    const withoutEnoughChoices = openCell(started2, 'Sanah czy Adolf Hitler', 0)
+    expect(withoutEnoughChoices.active?.assignment?.canTakeover).toBe(false) // 2 opcje
   })
 })
 

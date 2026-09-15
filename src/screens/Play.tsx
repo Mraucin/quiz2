@@ -242,6 +242,9 @@ function PlayerBody({
           <div className="mt-3 rounded-xl border border-mint/60 bg-mint/10 p-3">
             <div className="text-xs text-mint uppercase">Poprawna odpowiedź</div>
             <div className="text-lg font-semibold">{active.answerText}</div>
+            {active.answerMedia?.src ? (
+              <MediaView media={active.answerMedia} className="mt-3" hideLabel />
+            ) : null}
           </div>
         ) : null}
       </Panel>
@@ -852,6 +855,9 @@ function FinalPlayerView({
             <div className="rounded-xl border border-mint/60 bg-mint/10 p-3 text-center">
               <div className="text-xs text-mint uppercase">Poprawna odpowiedź</div>
               <div className="text-lg font-semibold">{final.answerText}</div>
+              {final.answerMedia?.src ? (
+                <MediaView media={final.answerMedia} className="mt-3" hideLabel />
+              ) : null}
             </div>
           ) : null}
         </Panel>

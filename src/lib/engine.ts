@@ -361,6 +361,9 @@ function makeActive(
       timerEndsAt: null,
       takeoverQueue: [],
       attempted: [],
+      // Explicit per-question override (editor) wins; otherwise the old rule stands — only
+      // ABCD questions with more than 2 choices are worth contesting.
+      canTakeover: question.allowTakeover ?? (question.choices?.length ?? 0) > 2,
     }
   }
 
@@ -1027,9 +1030,10 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
       if (playerId === a.lockedPlayerId) return prev
       if (assignment.attempted.includes(playerId)) return prev
       if (assignment.takeoverQueue.includes(playerId)) return prev
-      // Only choice-based questions with more than two options can be taken over, and only a
-      // handful of times per game.
-      if (!a.choices || a.choices.length <= 2) return prev
+      // Whether this question can be taken over at all — editor override or the default
+      // choice-count rule, computed once in `makeActive` (see `StandardAssignment.canTakeover`)
+      // — and only a handful of takeovers per game regardless.
+      if (!assignment.canTakeover) return prev
       if (state.takeoversUsed >= 4) return prev
       assignment.takeoverQueue.push(playerId)
       state.takeoversUsed += 1
