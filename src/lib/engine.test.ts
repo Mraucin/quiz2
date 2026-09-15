@@ -854,10 +854,13 @@ describe('runda 2 (dwie plansze)', () => {
     let state = admin2(lobby, { type: 'startGame' })
     state = resolveEstimation(state, ids)
 
-    // Wykorzystaj limit przejęć (domyślnie 4) na Rundzie 1.
+    // Wykorzystaj limit przejęć (domyślnie 4) na Rundzie 1. Musi to być kategoria z pytaniem
+    // ABCD o >2 odpowiedziach (przejęcie dozwolone domyślnie) — "Fobie" tak jak w testach
+    // przejęć wyżej, NIE po prostu pierwsza kategoria Rundy 1 (ta akurat to "Sanah czy Adolf
+    // Hitler" z tylko 2 odpowiedziami, gdzie przejęcie jest domyślnie zablokowane).
     round2Pack.rules.maxTakeoversPerBoard = 1
     try {
-      const round1Cat = round2Pack.categories.find((c) => (c.round ?? 1) === 1)!
+      const round1Cat = round2Pack.categories.find((c) => c.name === 'Fobie')!
       state = admin2(state, {
         type: 'openQuestion',
         categoryId: round1Cat.id,
