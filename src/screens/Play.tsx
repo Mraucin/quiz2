@@ -232,7 +232,7 @@ function PlayerBody({
           <>
             <p className="mt-3 text-lg leading-snug font-semibold">{active.prompt}</p>
             {active.media?.src ? (
-              <MediaView media={active.media} className="mt-3" />
+              <MediaView media={active.media} className="mt-3" hideLabel />
             ) : active.media ? (
               <p className="mt-2 text-sm text-white/50">Materiał odtwarza prowadzący na dużym ekranie.</p>
             ) : null}
@@ -412,7 +412,7 @@ function EstimationPlayerView({
     <Panel className="flex flex-col gap-3">
       <PanelTitle>Runda oszacowania</PanelTitle>
       <p className="text-lg font-semibold">{est.prompt}</p>
-      {est.media?.src ? <MediaView media={est.media} className="mt-1" /> : null}
+      {est.media?.src ? <MediaView media={est.media} className="mt-1" hideLabel /> : null}
       {!est.revealed ? (
         myGuess !== undefined ? (
           <div className="text-center">
@@ -743,7 +743,9 @@ function FinalPlayerView({
         </div>
         <div className="text-display text-3xl text-gold">{final.category}</div>
         {final.prompt ? <p className="mt-3 text-lg font-semibold">{final.prompt}</p> : null}
-        {final.media?.src && final.prompt ? <MediaView media={final.media} className="mt-3" /> : null}
+        {final.media?.src && final.prompt ? (
+          <MediaView media={final.media} className="mt-3" hideLabel />
+        ) : null}
         {remaining !== null && final.stage === 'answering' ? (
           <div className={cn('text-display mt-2 text-4xl', remaining <= 10 ? 'text-coral' : 'text-white')}>
             {remaining}s

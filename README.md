@@ -154,7 +154,11 @@ ze zwycięzcą.
 - Pytania: typ, treść, podpowiedzi ABCD (z oznaczeniem poprawnej) albo pytanie otwarte,
   klucz odpowiedzi, notatka dla prowadzącego, tekst dla lektora.
 - Multimedia w pytaniu, w odpowiedzi i w każdej opcji ABCD: zdjęcie, audio lub wideo —
-  z linku (`https://…`) albo wgrane z dysku.
+  z linku (`https://…`) albo wgrane z dysku. Link do filmu z YouTube (`youtube.com/watch?…`,
+  `youtu.be/…`, `/shorts/…`) leci jako odtwarzalny embed (`youtube-nocookie.com` — wariant z
+  mniejszym śledzeniem i bez nakładki z polecanymi filmami obcych kanałów) zamiast martwego
+  odtwarzacza wideo. To nie usuwa reklam, które YouTube pokazuje na danym filmie — na to nie
+  ma sposobu z poziomu embeda — ale ogranicza to, co dokleja sam YouTube dookoła filmu.
 - Listy odpowiedzi dla wyliczanki i licytacji (jedna pozycja na linię), liczba żyć,
   długość timera.
 - Pytania finałowe i globalne zasady (punkty startowe graczy, wartości wierszy, koszt
@@ -162,16 +166,15 @@ ze zwycięzcą.
   PIN chroniący admina i edytor).
 - Pakiet zapisuje się automatycznie w przeglądarce (IndexedDB) i można go
   eksportować/importować jako JSON.
-- **Uwaga:** pula pytań do rundy oszacowania (`pack.estimation`) i długość timera na
-  odpowiedź (`pack.rules.answerTimerSeconds`) na razie **nie mają jeszcze zakładki w
-  edytorze** — startowy pakiet ma 5 przykładowych pytań szacunkowych i timer 20s, a zmiana
-  wymaga edycji wyeksportowanego JSON-a. Dodanie im UI w edytorze to kolejny krok.
 
 Materiały z linków `https://…` widzą też gracze na telefonach. Pliki wgrane z dysku trafiają
 do graczy tak samo, dopóki mieszczą się w 4 MB — edytor pokazuje przy każdym pliku, czy
 pójdzie „także na telefony", czy zostanie tylko na ekranie hosta. Większe pliki celowo nie są
 wysyłane graczom, bo byłyby wysyłane w całości przy każdej synchronizacji stanu gry (każde
 zgłoszenie, każda zmiana punktów w trakcie pytania) i zapychałyby połączenie peer-to-peer.
+
+Nazwa wgranego pliku (np. „koncert_2019.mp3") widoczna jest w trakcie gry tylko na ekranie
+prowadzącego — gracze na telefonach widzą sam odtwarzacz/obrazek, bez nazwy pliku.
 
 ## Połączenia i sieć
 
