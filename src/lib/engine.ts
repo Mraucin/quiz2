@@ -155,7 +155,7 @@ export function joinPlayer(
     name: input.name.slice(0, 24) || `Gracz ${index + 1}`,
     avatar: input.avatar || AVATARS[index % AVATARS.length],
     color: PLAYER_COLORS[index % PLAYER_COLORS.length],
-    score: 0,
+    score: state.rules.startingScore,
     connected: true,
     disconnectedAt: null,
     local: false,
@@ -521,7 +521,7 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
           name: action.name.trim() || `Gracz ${state.players.length + 1}`,
           avatar: action.avatar ?? AVATARS[state.players.length % AVATARS.length],
           color: PLAYER_COLORS[state.players.length % PLAYER_COLORS.length],
-          score: 0,
+          score: state.rules.startingScore,
           connected: true,
           disconnectedAt: null,
           local: true,
@@ -607,6 +607,17 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
         state.active = null
         startEstimationRound(pack, state, [...eligibleTurnOrder(state)])
         log(state, 'Runda 2! Nowa runda oszacowania decyduje, kto zaczyna wybierać.', 'good')
+        break
+      }
+      case 'setRound': {
+        // Manual admin toggle between the two boards — no estimation round, no exhaustion
+        // check, unlike `startRound2`. Only meaningful mid-`board` phase, and only when the
+        // pack actually has a Runda 2 to switch to.
+        if (state.phase !== 'board') break
+        if (!hasRound2(pack)) break
+        if (state.round === action.round) break
+        state.round = action.round
+        log(state, `Prowadzący przełącza na planszę Rundy ${action.round}`)
         break
       }
       case 'openQuestion': {
@@ -977,7 +988,7 @@ export function applyAction(pack: Pack, prev: GameState, event: GameAction): Gam
         break
       }
       case 'resetGame': {
-        const players = state.players.map((p) => ({ ...p, score: 0 }))
+        const players = state.players.map((p) => ({ ...p, score: pack.rules.startingScore }))
         const fresh = createInitialState(pack, state.code)
         fresh.players = players
         fresh.turnOrder = players.map((p) => p.id)

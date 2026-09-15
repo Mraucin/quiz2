@@ -378,12 +378,36 @@ function AdminScreenContent({ pack, navigate }: { pack: Pack; navigate: (path: s
             {state.phase === 'estimation' ? <EstimationStage state={state} /> : null}
             {state.phase === 'board' ? (
               <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <PanelTitle className="text-base">
                     Plansza{twoRounds ? ` — Runda ${state.round}` : ''} — wybiera{' '}
                     {currentPlayer ? currentPlayer.name : 'prowadzący'}
                   </PanelTitle>
-                  <Badge>{remaining} pytań zostało</Badge>
+                  <div className="flex items-center gap-2">
+                    {twoRounds ? (
+                      <div
+                        className="flex overflow-hidden rounded-lg border border-stage-600"
+                        title="Ręczne przełączenie planszy — nie uruchamia nowej rundy oszacowania"
+                      >
+                        {([1, 2] as const).map((round) => (
+                          <button
+                            key={round}
+                            type="button"
+                            onClick={() => dispatch({ type: 'setRound', round })}
+                            className={cn(
+                              'px-3 py-1.5 text-sm font-semibold transition',
+                              state.round === round
+                                ? 'bg-gold text-stage-900'
+                                : 'bg-transparent text-white/60 hover:bg-white/5',
+                            )}
+                          >
+                            Plansza {round}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <Badge>{remaining} pytań zostało</Badge>
+                  </div>
                 </div>
                 {remaining === 0 && awaitingRound2 ? (
                   <div className="animate-pop flex flex-wrap items-center gap-4 rounded-card border border-gold/60 bg-gold/10 p-4">

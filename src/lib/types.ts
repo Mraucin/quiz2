@@ -97,6 +97,8 @@ export interface FinalQuestion {
 }
 
 export interface PackRules {
+  /** Punkty, z którymi każdy gracz zaczyna grę (dołączenie do lobby, gracz lokalny, reset gry). */
+  startingScore: number
   /** Base row values before the category multiplier. */
   rowValues: number[]
   /** Cost of a vowel in Koło fortuny. */
@@ -377,6 +379,11 @@ export type AdminAction =
   | { type: 'estimateAdvance' }
   /** Board 1 (Runda 1) is fully used up — switch to board 2 and open a fresh estimation round to pick who designates first. */
   | { type: 'startRound2' }
+  /** Manual override — lets the admin flip which board (Runda 1/2) is currently shown/pickable,
+   * independent of `startRound2` (no estimation round, no exhaustion check). Only takes effect
+   * while `phase === 'board'`, e.g. to go back and finish a leftover Runda 1 question, or to
+   * peek/jump ahead into Runda 2. */
+  | { type: 'setRound'; round: 1 | 2 }
   | { type: 'openQuestion'; categoryId: string; questionId: string; assignedPlayerId?: string }
   | { type: 'startAnswerTimer'; seconds?: number }
   | { type: 'judge'; playerId: string; correct: boolean }

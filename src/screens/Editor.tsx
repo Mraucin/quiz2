@@ -721,6 +721,22 @@ function EditorScreenContent({
       {tab === 'rules' ? (
         <Panel className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
+            <Label>Punkty startowe każdego gracza</Label>
+            <Input
+              inputMode="numeric"
+              value={pack.rules.startingScore}
+              onChange={(event) =>
+                patchPack({
+                  rules: { ...pack.rules, startingScore: Number(event.target.value) || 0 },
+                })
+              }
+            />
+            <p className="mt-1 text-xs text-white/45">
+              Tyle punktów ma gracz od razu po dołączeniu do lobby (dotyczy też graczy
+              lokalnych i restartu gry).
+            </p>
+          </div>
+          <div>
             <Label>Wartości wierszy (oddzielone przecinkami)</Label>
             <Input
               value={pack.rules.rowValues.join(', ')}

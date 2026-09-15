@@ -4,6 +4,10 @@ import { applyAction, createInitialState, hasRound2, joinPlayer, setConnected } 
 import type { AdminAction, GameState, Pack, PlayerAction } from './types'
 
 const pack: Pack = structuredClone(DEFAULT_PACK)
+// Testy poniżej liczą dokładne delty punktowe (np. "+300", "wynik to 0") niezależnie od
+// realnego punktu startowego domyślnego pakietu (2000 — patrz opis "punkty startowe" niżej,
+// gdzie to konkretnie jest testowane z nieskorygowanym DEFAULT_PACK).
+pack.rules.startingScore = 0
 
 const categoryByName = (name: string) => {
   const category = pack.categories.find((item) => item.name === name)
@@ -564,6 +568,50 @@ describe('runda 2 (dwie plansze)', () => {
     expect(round2Categories).toHaveLength(3)
   })
 
+  it('setRound pozwala adminowi ręcznie przełączać planszę, bez rundy oszacowania i bez wymogu wyczerpania', () => {
+    const { state: lobby, ids } = lobby2(['Ala', 'Bolek'])
+    let state = admin2(lobby, { type: 'startGame' })
+    state = resolveEstimation(state, ids)
+    expect(state.phase).toBe('board')
+    expect(state.round).toBe(1)
+
+    // Plansza 1 daleka od wyczerpania — startRound2 by to zignorował, ale setRound i tak przełącza.
+    state = admin2(state, { type: 'setRound', round: 2 })
+    expect(state.round).toBe(2)
+    expect(state.phase).toBe('board') // żadnej nowej rundy oszacowania
+    expect(state.estimation).toBeNull()
+    expect(state.currentPlayerId).not.toBeNull() // kolejka picking rights niezmieniona
+
+    // I z powrotem.
+    state = admin2(state, { type: 'setRound', round: 1 })
+    expect(state.round).toBe(1)
+  })
+
+  it('setRound jest ignorowany poza fazą planszy i gdy pakiet nie ma Rundy 2', () => {
+    const { state: lobby, ids } = lobby2(['Ala', 'Bolek'])
+    let state = admin2(lobby, { type: 'startGame' })
+    // Wciąż w fazie 'estimation' — setRound nie powinien nic zrobić.
+    expect(state.phase).toBe('estimation')
+    const duringEstimation = admin2(state, { type: 'setRound', round: 2 })
+    expect(duringEstimation.round).toBe(1)
+
+    state = resolveEstimation(state, ids)
+    const category = round2Pack.categories.find((c) => (c.round ?? 1) === 1)!
+    state = admin2(state, {
+      type: 'openQuestion',
+      categoryId: category.id,
+      questionId: category.questions[0].id,
+    })
+    expect(state.phase).toBe('question')
+    const duringQuestion = admin2(state, { type: 'setRound', round: 2 })
+    expect(duringQuestion.round).toBe(1)
+
+    // Pakiet startowy bez Rundy 2 w ogóle — setRound zawsze no-op.
+    const { state: plainState } = startedGame()
+    const afterNoop = admin(plainState, { type: 'setRound', round: 2 })
+    expect(afterNoop.round).toBe(1)
+  })
+
   it('startRound2 jest ignorowany, dopóki plansza Rundy 1 nie jest pusta', () => {
     const { state: lobby, ids } = lobby2(['Ala', 'Bolek'])
     let state = admin2(lobby, { type: 'startGame' })
@@ -632,5 +680,44 @@ describe('runda 2 (dwie plansze)', () => {
     expect(state.round).toBe(1)
     const afterNoop = admin(state, { type: 'startRound2' })
     expect(afterNoop.round).toBe(1)
+  })
+})
+
+describe('punkty startowe', () => {
+  // Osobny, NIEskorygowany klon DEFAULT_PACK — moduł-owy `pack` powyżej celowo ustawia
+  // startingScore na 0, żeby testy z dokładnymi deltami zostały czytelne. Tu sprawdzamy
+  // naprawdę wysyłany domyślny pakiet (startingScore: 2000).
+  const freshPack: Pack = structuredClone(DEFAULT_PACK)
+
+  function adminFresh(state: GameState, action: AdminAction) {
+    return applyAction(freshPack, state, { source: 'admin', action })
+  }
+
+  it('pakiet startowy domyślnie ma 2000 punktów startowych', () => {
+    expect(freshPack.rules.startingScore).toBe(2000)
+  })
+
+  it('gracz dołączający do lobby zaczyna z punktami startowymi pakietu', () => {
+    let state = createInitialState(freshPack, 'TESTSTART')
+    const { state: joined } = joinPlayer(state, { name: 'Ala', avatar: '🦊' })
+    state = joined
+    expect(state.players[0].score).toBe(2000)
+  })
+
+  it('gracz lokalny (hot-seat) też zaczyna z punktami startowymi pakietu', () => {
+    const state = adminFresh(createInitialState(freshPack, 'TESTSTART'), {
+      type: 'addLocalPlayer',
+      name: 'Bolek',
+    })
+    expect(state.players[0].score).toBe(2000)
+  })
+
+  it('resetGame wraca do punktów startowych, nie do zera', () => {
+    let state = createInitialState(freshPack, 'TESTSTART')
+    state = joinPlayer(state, { name: 'Ala', avatar: '🦊' }).state
+    state = adminFresh(state, { type: 'adjustScore', playerId: state.players[0].id, delta: 500 })
+    expect(state.players[0].score).toBe(2500)
+    state = adminFresh(state, { type: 'resetGame' })
+    expect(state.players[0].score).toBe(2000)
   })
 })

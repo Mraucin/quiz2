@@ -11,6 +11,7 @@ import type {
 } from './types'
 
 export const DEFAULT_RULES: PackRules = {
+  startingScore: 2000,
   rowValues: [100, 200, 300, 400, 500, 600],
   vowelCost: 100,
   listBasePayout: 600,

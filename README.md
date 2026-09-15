@@ -92,6 +92,11 @@ rundę 2” zamiast „Runda finałowa”. Kliknięcie uruchamia **nową rundę 
 taką jak na starcie gry) — kto zgadnie najbliżej, ten wybiera pierwszą kategorię Rundy 2.
 Dopiero po wyczerpaniu planszy Rundy 2 pojawia się przycisk startujący rundę finałową.
 
+Prowadzący może też w każdej chwili (dopóki jest na widoku planszy) ręcznie przełączyć się
+między „Plansza 1” a „Plansza 2” przełącznikiem nad planszą — np. żeby wrócić i dokończyć
+zaległe pytanie z Rundy 1, albo zerknąć do przodu na Rundę 2. To czysto ręczne przełączenie:
+nie uruchamia nowej rundy oszacowania i nie wymaga, żeby druga plansza była pusta.
+
 Jeśli żadna kategoria nie zostanie przypisana do Rundy 2, gra działa jak dotychczas —
 jedna plansza, bez dodatkowej rundy oszacowania w środku.
 
@@ -152,9 +157,9 @@ ze zwycięzcą.
   z linku (`https://…`) albo wgrane z dysku.
 - Listy odpowiedzi dla wyliczanki i licytacji (jedna pozycja na linię), liczba żyć,
   długość timera.
-- Pytania finałowe i globalne zasady (wartości wierszy, koszt samogłoski, wypłaty
-  w wyliczance, timery — w tym czas na odpowiedź w zwykłym pytaniu — PIN chroniący admina
-  i edytor).
+- Pytania finałowe i globalne zasady (punkty startowe graczy, wartości wierszy, koszt
+  samogłoski, wypłaty w wyliczance, timery — w tym czas na odpowiedź w zwykłym pytaniu —
+  PIN chroniący admina i edytor).
 - Pakiet zapisuje się automatycznie w przeglądarce (IndexedDB) i można go
   eksportować/importować jako JSON.
 - **Uwaga:** pula pytań do rundy oszacowania (`pack.estimation`) i długość timera na
