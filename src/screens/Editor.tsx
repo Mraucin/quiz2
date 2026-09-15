@@ -360,15 +360,13 @@ function EditorScreenContent({
                     <span className="flex-1 truncate">{item.prompt || '(puste)'}</span>
                     {item.kind === 'standard' ? (
                       resolvesToTakeover(item) ? (
-                        <Repeat2
-                          className="size-3.5 shrink-0 text-mint"
-                          title="Można przejmować to pytanie"
-                        />
+                        <span title="Można przejmować to pytanie" className="shrink-0">
+                          <Repeat2 className="size-3.5 text-mint" />
+                        </span>
                       ) : (
-                        <Ban
-                          className="size-3.5 shrink-0 text-white/25"
-                          title="Nie można przejmować tego pytania"
-                        />
+                        <span title="Nie można przejmować tego pytania" className="shrink-0">
+                          <Ban className="size-3.5 text-white/25" />
+                        </span>
                       )
                     ) : null}
                   </button>
