@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PACK, WHEEL_SEGMENTS } from './defaultPack'
 import { applyAction, createInitialState, hasRound2, joinPlayer, setConnected } from './engine'
 import type { AdminAction, GameState, Pack, PlayerAction, StandardQuestion } from './types'
+import { MAX_PLAYER_MEDIA_BYTES } from './utils'
 
 const pack: Pack = structuredClone(DEFAULT_PACK)
 // Testy poniżej liczą dokładne delty punktowe (np. "+300", "wynik to 0") niezależnie od
@@ -314,6 +315,33 @@ describe('ręczny znacznik przejmowania (allowTakeover)', () => {
     const { state: started2 } = startedGame()
     const withoutEnoughChoices = openCell(started2, 'Sanah czy Adolf Hitler', 0)
     expect(withoutEnoughChoices.active?.assignment?.canTakeover).toBe(false) // 2 opcje
+  })
+})
+
+describe('media odpowiedzi — limit rozmiaru dla graczy', () => {
+  it('mały wgrany plik trafia do graczy w `answerMedia`, duży zostaje tylko na hoście', () => {
+    const { state: started } = startedGame()
+    const question = categoryByName('Fobie').questions[0] as StandardQuestion
+    const originalAnswerMedia = question.answerMedia
+    // approxDataUrlBytes liczy `src.length * 0.75` — dobieramy długości tak, żeby jedna
+    // wersja wypadła bezpiecznie poniżej `MAX_PLAYER_MEDIA_BYTES`, a druga powyżej.
+    const small = `data:audio/mp3;base64,${'A'.repeat(1000)}`
+    const bigLength = Math.ceil(MAX_PLAYER_MEDIA_BYTES / 0.75) + 1000
+    const big = `data:audio/mp3;base64,${'A'.repeat(bigLength)}`
+    try {
+      question.answerMedia = { kind: 'audio', src: small }
+      let state = openCell(started, 'Fobie', 0)
+      state = admin(state, { type: 'revealAnswer' })
+      expect(state.active?.answerMedia?.src).toBe(small)
+
+      question.answerMedia = { kind: 'audio', src: big }
+      let state2 = openCell(started, 'Fobie', 0)
+      state2 = admin(state2, { type: 'revealAnswer' })
+      expect(state2.active?.answerMedia?.src).toBeUndefined()
+      expect(state2.active?.answerMedia?.kind).toBe('audio') // rodzaj i etykieta zostają — tylko `src` jest ucięte
+    } finally {
+      question.answerMedia = originalAnswerMedia
+    }
   })
 })
 

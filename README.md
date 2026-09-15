@@ -174,10 +174,14 @@ ze zwycięzcą.
   eksportować/importować jako JSON.
 
 Materiały z linków `https://…` widzą też gracze na telefonach. Pliki wgrane z dysku trafiają
-do graczy tak samo, dopóki mieszczą się w 4 MB — edytor pokazuje przy każdym pliku, czy
-pójdzie „także na telefony", czy zostanie tylko na ekranie hosta. Większe pliki celowo nie są
-wysyłane graczom, bo byłyby wysyłane w całości przy każdej synchronizacji stanu gry (każde
-zgłoszenie, każda zmiana punktów w trakcie pytania) i zapychałyby połączenie peer-to-peer.
+do graczy tak samo, dopóki mieszczą się w 15 MB (z zapasem na kilkuminutowe nagranie audio) —
+edytor pokazuje przy każdym pliku, czy pójdzie „także na telefony", czy zostanie tylko na
+ekranie hosta. Większe pliki (typowo długie wideo) celowo nie są wysyłane graczom, bo są
+wysyłane w całości przy każdej kolejnej synchronizacji stanu gry, dopóki pytanie jest otwarte
+(np. każde uznanie/odrzucenie odpowiedzi, każda ręczna korekta punktów) — dla takiego pliku
+gracz na telefonie widzi tylko informację, że materiał leci na ekranie hosta. Żeby duży plik
+(zwłaszcza wideo) zawsze trafiał też na telefony, wklej go jako link `https://…` (np. YouTube)
+zamiast wgrywać z dysku — linki nie mają limitu rozmiaru.
 
 Nazwa wgranego pliku (np. „koncert_2019.mp3") widoczna jest w trakcie gry tylko na ekranie
 prowadzącego — gracze na telefonach widzą sam odtwarzacz/obrazek, bez nazwy pliku.

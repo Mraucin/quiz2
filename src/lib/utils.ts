@@ -28,11 +28,13 @@ export function roomCode() {
 
 /**
  * Local uploads (`data:` URLs) at or under this size are forwarded to players' phones over
- * the peer-to-peer connection, same as the host screen. Bigger ones stay host-only — they'd
- * get re-sent in full on every game-state broadcast (every buzz, every score change while the
- * question is open), which would bog down the connection to every phone.
+ * the peer-to-peer connection, same as the host screen. Bigger ones stay host-only — a
+ * game-state broadcast (and therefore this blob) is re-sent on every action taken while the
+ * question stays open (judging, score corrections, closing it), not continuously, so a
+ * generous cap is fine — this covers a multi-minute MP3 comfortably, while still keeping a
+ * multi-minute 4K video upload host-only.
  */
-export const MAX_PLAYER_MEDIA_BYTES = 4 * 1024 * 1024
+export const MAX_PLAYER_MEDIA_BYTES = 15 * 1024 * 1024
 
 /** Rough decoded size of a `data:` URL — good enough for a UI hint or a forwarding cutoff. */
 export function approxDataUrlBytes(src: string) {

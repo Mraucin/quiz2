@@ -244,6 +244,8 @@ function PlayerBody({
             <div className="text-lg font-semibold">{active.answerText}</div>
             {active.answerMedia?.src ? (
               <MediaView media={active.answerMedia} className="mt-3" hideLabel />
+            ) : active.answerMedia ? (
+              <p className="mt-2 text-sm text-white/50">Materiał odtwarza prowadzący na dużym ekranie.</p>
             ) : null}
           </div>
         ) : null}
@@ -857,6 +859,8 @@ function FinalPlayerView({
               <div className="text-lg font-semibold">{final.answerText}</div>
               {final.answerMedia?.src ? (
                 <MediaView media={final.answerMedia} className="mt-3" hideLabel />
+              ) : final.answerMedia ? (
+                <p className="mt-2 text-sm text-white/50">Materiał odtwarza prowadzący na dużym ekranie.</p>
               ) : null}
             </div>
           ) : null}

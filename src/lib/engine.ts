@@ -38,8 +38,8 @@ export function cellValue(pack: Pack, category: Pick<Category, 'multiplier' | 'f
 
 /**
  * Remote (http/https) media always goes to phones. Local uploads (`data:` URLs) go too, as
- * long as they're under `MAX_PLAYER_MEDIA_BYTES` — bigger ones stay host-screen-only so they
- * don't get re-sent in full on every game-state broadcast to every connected phone.
+ * long as they're under `MAX_PLAYER_MEDIA_BYTES` — bigger ones stay host-screen-only (players
+ * see a "playing on the host screen" note instead — see `Play.tsx`).
  */
 function toPublicMedia(media?: Media): PublicMedia | undefined {
   if (!media) return undefined
