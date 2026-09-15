@@ -787,7 +787,7 @@ function FinalPlayerView({
       {final.stage === 'question' || final.stage === 'answering' ? (
         <Panel className="flex flex-col gap-3">
           <PanelTitle>Twoja odpowiedź (obstawiono {formatPoints(myWager ?? 0)})</PanelTitle>
-          <DrawingPad value={answer} onChange={setAnswer} editable resetKey={final.index} className="h-40" />
+          <DrawingPad value={answer} onChange={setAnswer} editable resetKey={final.index} />
           <Button
             variant="primary"
             size="lg"
@@ -804,36 +804,38 @@ function FinalPlayerView({
       {final.stage === 'reveal' || final.stage === 'scored' ? (
         <Panel className="flex flex-col gap-2">
           <PanelTitle>Odpowiedzi na forum</PanelTitle>
-          {state.players.map((player) => {
-            const revealed = final.revealed.includes(player.id)
-            const verdict = final.verdicts[player.id]
-            return (
-              <div
-                key={player.id}
-                className={cn(
-                  'rounded-xl border px-3 py-2',
-                  verdict === 'correct'
-                    ? 'border-mint/60 bg-mint/10'
-                    : verdict === 'wrong'
-                      ? 'border-coral/60 bg-coral/10'
-                      : 'border-stage-600',
-                )}
-              >
-                <div className="flex items-center gap-2 text-sm">
-                  <span>{player.avatar}</span>
-                  <span className="flex-1 truncate">{player.name}</span>
-                  <Badge tone="gold">{formatPoints(final.wagers[player.id] ?? 0)}</Badge>
-                </div>
-                <div className="mt-1">
-                  {revealed ? (
-                    <DrawingPad value={final.answers[player.id]} className="h-24" />
-                  ) : (
-                    'odpowiedź zakryta'
+          <div className="grid grid-cols-2 gap-2">
+            {state.players.map((player) => {
+              const revealed = final.revealed.includes(player.id)
+              const verdict = final.verdicts[player.id]
+              return (
+                <div
+                  key={player.id}
+                  className={cn(
+                    'rounded-xl border px-2 py-2',
+                    verdict === 'correct'
+                      ? 'border-mint/60 bg-mint/10'
+                      : verdict === 'wrong'
+                        ? 'border-coral/60 bg-coral/10'
+                        : 'border-stage-600',
                   )}
+                >
+                  <div className="flex items-center gap-1 text-xs">
+                    <span>{player.avatar}</span>
+                    <span className="flex-1 truncate">{player.name}</span>
+                    <Badge tone="gold">{formatPoints(final.wagers[player.id] ?? 0)}</Badge>
+                  </div>
+                  <div className="mt-1">
+                    {revealed ? (
+                      <DrawingPad value={final.answers[player.id]} />
+                    ) : (
+                      <span className="text-xs text-white/45">odpowiedź zakryta</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
           {final.answerText ? (
             <div className="rounded-xl border border-mint/60 bg-mint/10 p-3 text-center">
               <div className="text-xs text-mint uppercase">Poprawna odpowiedź</div>

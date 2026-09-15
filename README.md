@@ -156,10 +156,12 @@ pytania gracze najpierw słyszą kategorię i obstawiają punkty (max = ich stan
 nie mniej niż 1000, obstawianie to zwykły numeryczny input), potem odpowiadają na
 telefonach — **odręcznie, na rysowanym panelu** (`DrawingPad`), a nie wpisując tekst z
 klawiatury: pisze/rysuje się palcem po ekranie, widać charakter pisma, bardziej „na
-żywo”. Panel serializuje się do lekkiego JSON-a (lista kresek punktów), nie do
-rastrowego obrazka, więc nawet długa odpowiedź to zwykle kilka KB w stanie gry.
+żywo”. Panel ma proporcje 600×400 (wyraźnie wyższy niż szeroki), dopasowuje się
+szerokością do ekranu. Panel serializuje się do lekkiego JSON-a (lista kresek punktów),
+nie do rastrowego obrazka, więc nawet długa odpowiedź to zwykle kilka KB w stanie gry.
 Admin odkrywa odpowiedzi **publicznie, jedna po drugiej** (widzi je od razu, jeszcze
-przed odkryciem — może ocenić, zanim gracze zobaczą) i uznaje lub odrzuca. Na koniec
+przed odkryciem — może ocenić, zanim gracze zobaczą) i uznaje lub odrzuca — u graczy i
+na ekranie hosta odpowiedzi po odkryciu pokazują się w siatce **2 kolumn**. Na koniec
 pokazuje się podium ze zwycięzcą.
 
 ## Edytor pytań (`#/editor`)

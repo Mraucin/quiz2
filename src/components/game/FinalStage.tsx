@@ -67,7 +67,7 @@ export function FinalStageView({
 
       {question?.media && final.prompt ? <MediaView media={question.media} /> : null}
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2">
         {state.players.map((player) => {
           const wager = final.wagers[player.id]
           const verdict = final.verdicts[player.id]
@@ -101,7 +101,7 @@ export function FinalStageView({
               </div>
               {revealed ? (
                 <div className="animate-pop">
-                  <DrawingPad value={final.answers[player.id]} className="h-28" />
+                  <DrawingPad value={final.answers[player.id]} />
                 </div>
               ) : (
                 <div className="text-sm text-white/35">

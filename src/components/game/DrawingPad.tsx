@@ -7,7 +7,7 @@ type Point = [number, number]
 type Stroke = Point[]
 
 const VIEW_W = 600
-const VIEW_H = 240
+const VIEW_H = 400
 /** Punkty bliższe niż to (w jednostkach viewBoxa) są pomijane — szkic zostaje płynny, ale bez
  * setek prawie-identycznych punktów z każdego zdarzenia `pointermove`. */
 const MIN_POINT_GAP = 3
@@ -54,7 +54,8 @@ export function DrawingPad({
   /** Zmiana tej wartości czyści szkic — użyj np. `final.index`, żeby nie zostały kreski z
    * poprzedniego pytania finałowego. */
   resetKey?: string | number
-  /** Steruje rozmiarem panelu (np. `"h-40"`) — domyślnie średnia wysokość. */
+  /** Nadpisuje rozmiar/proporcje panelu (np. `"h-16 w-40"` na mały podgląd) — domyślnie
+   * `aspect-[3/2] w-full`, czyli proporcje 600×400 z viewBoxa, szerokość na całą dostępną. */
   className?: string
   emptyLabel?: string
 }) {
@@ -77,6 +78,11 @@ export function DrawingPad({
     onChange?.('')
   }, [resetKey])
 
+  // Zależy na `preserveAspectRatio="none"` na <svg> niżej: bez tego SVG domyślnie skaluje
+  // viewBox proporcjonalnie i dokleja "czarne pasy" (letterboxing), gdy pudełko nie ma
+  // dokładnie proporcji viewBoxa (600:400) — a to liczenie zakłada, że viewBox rozciąga się
+  // na CAŁY `rect`. Bez `none` powodowało to dokładnie ten bug: kreska "uciekała" spod
+  // kursora tym bardziej, im dalej od środka się rysowało.
   const toPoint = (clientX: number, clientY: number): Point => {
     const svg = svgRef.current
     if (!svg) return [0, 0]
@@ -131,13 +137,18 @@ export function DrawingPad({
     <div className="flex flex-col gap-2">
       <div
         className={cn(
-          'relative h-32 overflow-hidden rounded-card border border-stage-600 bg-black/30',
+          // Domyślnie proporcje 3:2 (= 600×400 z viewBoxa) — wysokość sama dopasowuje się do
+          // szerokości, więc panel jest wyraźnie wyższy niż był (poprzednio 600×240, "szeroki
+          // ale niewysoki"). Wywołujący może nadpisać przez `className`, jeśli potrzebuje
+          // innego rozmiaru (np. mały podgląd obok przycisków).
+          'relative aspect-[3/2] w-full overflow-hidden rounded-card border border-stage-600 bg-black/30',
           className,
         )}
       >
         <svg
           ref={svgRef}
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+          preserveAspectRatio="none"
           className={cn('block h-full w-full text-white', editable && 'touch-none cursor-crosshair')}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
